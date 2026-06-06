@@ -135,16 +135,12 @@ void ACP_PlayerController::AbilityInputTagTriggered(FGameplayTag InputTag, bool 
 	APawn* ControlledPawn = GetPawn();
 	if (!ControlledPawn)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Ability input %s ignored. No pawn."), *InputTag.ToString());
 		return;
 	}
 
 	UCP_PredictedAbilityComponent* PredictedAbilityComponent = ControlledPawn->FindComponentByClass<UCP_PredictedAbilityComponent>();
 	if (!PredictedAbilityComponent)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Ability input %s ignored. Pawn %s has no PredictedAbilityComponent."),
-			*InputTag.ToString(),
-			*GetNameSafe(ControlledPawn));
 		return;
 	}
 

@@ -4,15 +4,12 @@
 #include "Animation/AnimMontage.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
+#include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerState.h"
 
 void UCP_PredictedGameplayAbility::InitializeAbility(UCP_PredictedAbilityComponent* InOwningComponent)
 {
 	OwningComponent = InOwningComponent;
-	
-	UE_LOG(LogTemp, Log, TEXT("Granted predicted ability. Owner=%s Ability=%s AbilityTag=%s"),
-		*GetNameSafe(InOwningComponent ? InOwningComponent->GetOwner() : nullptr),
-		*GetNameSafe(this),
-		*AbilityTag.ToString());
 
 	BP_OnAbilityGranted();
 }
@@ -59,13 +56,6 @@ float UCP_PredictedGameplayAbility::PlayMontageOnActor(AActor* TargetActor, UAni
 void UCP_PredictedGameplayAbility::HandleAbilityEvent_Implementation(FName EventName,
                                                                      const FCP_PredictedAbilityActivationInfo& ActivationInfo)
 {
-	UE_LOG(LogTemp, Log, TEXT("Ability event. Owner=%s Ability=%s Event=%s PredictionKey=%d Authority=%d LocalPredicted=%d"),
-		*GetNameSafe(OwningComponent ? OwningComponent->GetOwner() : nullptr),
-		*GetNameSafe(this),
-		*EventName.ToString(),
-		ActivationInfo.PredictionKey,
-		ActivationInfo.bIsAuthority,
-		ActivationInfo.bIsLocallyPredicted);
 }
 
 bool UCP_PredictedGameplayAbility::CanActivateAbility_Implementation() const
@@ -76,14 +66,6 @@ bool UCP_PredictedGameplayAbility::CanActivateAbility_Implementation() const
 void UCP_PredictedGameplayAbility::ActivateAbility_Implementation(const FCP_PredictedAbilityActivationInfo& ActivationInfo)
 {
 	CurrentActivationInfo = ActivationInfo;
-	
-	UE_LOG(LogTemp, Warning, TEXT("Activated predicted ability. Owner=%s Ability=%s Tag=%s PredictionKey=%d LocalPredicted=%d Authority=%d"),
-		*GetNameSafe(OwningComponent ? OwningComponent->GetOwner() : nullptr),
-		*GetNameSafe(this),
-		*ActivationInfo.AbilityTag.ToString(),
-		ActivationInfo.PredictionKey,
-		ActivationInfo.bIsLocallyPredicted,
-		ActivationInfo.bIsAuthority);
 }
 
 bool UCP_PredictedGameplayAbility::TraceAvatarForward(
@@ -134,4 +116,58 @@ bool UCP_PredictedGameplayAbility::TraceAvatarForward(
 	}
 
 	return bHit;
+}
+
+bool UCP_PredictedGameplayAbility::ProcessPredictedMeleeHit(
+	const FCP_PredictedAbilityActivationInfo& ActivationInfo,
+	UAnimMontage* HitReactMontage,
+	float TraceDistance,
+	float TraceRadius,
+	TEnumAsByte<ECollisionChannel> TraceChannel,
+	FHitResult& OutHit,
+	bool bDrawDebug) const
+{
+	if (!ActivationInfo.bIsLocallyPredicted && !ActivationInfo.bIsAuthority)
+	{
+		return false;
+	}
+
+	if (!TraceAvatarForward(TraceDistance, TraceRadius, TraceChannel, OutHit, bDrawDebug))
+	{
+		return false;
+	}
+
+	AActor* HitActor = OutHit.GetActor();
+	if (!HitActor || !HitReactMontage)
+	{
+		return false;
+	}
+
+	if (ActivationInfo.bIsAuthority)
+	{
+		if (OwningComponent)
+		{
+			OwningComponent->ConfirmHitReaction(HitActor, HitReactMontage, ActivationInfo.PredictionKey);
+		}
+		return true;
+	}
+
+	if (ActivationInfo.bIsLocallyPredicted)
+	{
+		if (UCP_PredictedAbilityComponent* HitAbilityComponent = HitActor->FindComponentByClass<UCP_PredictedAbilityComponent>())
+		{
+			const APawn* AvatarPawn = Cast<APawn>(GetAvatarActor());
+			const APlayerState* PlayerState = AvatarPawn ? AvatarPawn->GetPlayerState() : nullptr;
+			const float AttackerPingSeconds = PlayerState ? PlayerState->GetPingInMilliseconds() * 0.001f : 0.f;
+			const float PredictionBuffer = FMath::Clamp(AttackerPingSeconds + 0.1f, 0.2f, 0.75f);
+			const float BlendOutSettleTime = HitReactMontage->GetDefaultBlendOutTime() + 0.15f;
+			HitAbilityComponent->BeginLocalPredictedTargetReaction(
+				HitReactMontage->GetPlayLength() + PredictionBuffer + BlendOutSettleTime);
+		}
+
+		PlayMontageOnActor(HitActor, HitReactMontage);
+		return true;
+	}
+
+	return false;
 }

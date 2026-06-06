@@ -2,6 +2,7 @@
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "PredictedAbility/CP_PredictedAbilityComponent.h"
 
 void UCP_AnimInstance::NativeInitializeAnimation()
 {
@@ -21,6 +22,19 @@ void UCP_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	Super::NativeUpdateAnimation(DeltaSeconds);
 	
 	if (!Character || !CharacterMovementComponent) return;
+
+	const UCP_PredictedAbilityComponent* PredictedAbilityComponent =
+		Character->FindComponentByClass<UCP_PredictedAbilityComponent>();
+	if (PredictedAbilityComponent && PredictedAbilityComponent->ShouldSuppressLocomotionAnimation())
+	{
+		bIsAccelerating = false;
+		GroundSpeed = 0.f;
+		IsAirBorne = CharacterMovementComponent->IsFalling();
+		AimRotation = Character->GetBaseAimRotation();
+		MovementRotation = Character->GetActorRotation();
+		MovementOffsetYaw = 0.f;
+		return;
+	}
 	
 	/* ---------- Movement ---------- */
 	bIsAccelerating = CharacterMovementComponent->GetCurrentAcceleration().Size() > 0.f;

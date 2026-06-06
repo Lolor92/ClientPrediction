@@ -1,6 +1,13 @@
-﻿#include "PredictedAbility/CP_PredictedAbilityComponent.h"
+#include "PredictedAbility/CP_PredictedAbilityComponent.h"
 #include "PredictedAbility/CP_PredictedGameplayAbility.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "GameFramework/GameStateBase.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerState.h"
+#include "TimerManager.h"
 
 UCP_PredictedAbilityComponent::UCP_PredictedAbilityComponent()
 {
@@ -13,9 +20,6 @@ void UCP_PredictedAbilityComponent::BeginPlay()
 	Super::BeginPlay();
 	
 	GrantDefaultAbilities();
-	
-	UE_LOG(LogTemp, Log, TEXT("PredictedAbilityComponent ready on %s. OwnerRole=%d"),
-		*GetNameSafe(GetOwner()), static_cast<int32>(GetOwnerRole()));
 }
 
 bool UCP_PredictedAbilityComponent::IsLocallyControlledAvatar() const
@@ -44,17 +48,11 @@ bool UCP_PredictedAbilityComponent::TryActivateAbilityByTag(FGameplayTag Ability
 	UCP_PredictedGameplayAbility* Ability = FindAbilityByTag(AbilityTag);
 	if (!Ability)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("No predicted ability found for tag %s on %s"),
-			*AbilityTag.ToString(),
-			*GetNameSafe(GetOwner()));
 		return false;
 	}
 
 	if (!Ability->CanActivateAbility())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Predicted ability blocked. Ability=%s Tag=%s"),
-			*GetNameSafe(Ability),
-			*AbilityTag.ToString());
 		return false;
 	}
 
@@ -71,6 +69,7 @@ bool UCP_PredictedAbilityComponent::TryActivateAbilityByTag(FGameplayTag Ability
 	ActivationInfo.bIsLocallyPredicted = IsLocallyControlledAvatar();
 	ActivationInfo.bIsAuthority = GetOwnerRole() == ROLE_Authority;
 
+	CurrentActiveAbility = Ability;
 	Ability->ActivateAbility(ActivationInfo);
 	
 	if (GetOwnerRole() != ROLE_Authority)
@@ -89,20 +88,12 @@ void UCP_PredictedAbilityComponent::MulticastConfirmAbilityStarted_Implementatio
 	const bool bWasPredictedHere = ConsumePendingPrediction(AbilityTag, PredictionKey);
 	if (bWasPredictedHere)
 	{
-		UE_LOG(LogTemp, Log, TEXT("Confirmed predicted ability without replay. Owner=%s Tag=%s PredictionKey=%d"),
-			*GetNameSafe(GetOwner()),
-			*AbilityTag.ToString(),
-			PredictionKey);
 		return;
 	}
 
 	UCP_PredictedGameplayAbility* Ability = FindAbilityByTag(AbilityTag);
 	if (!Ability)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Confirmed ability missing on client. Owner=%s Tag=%s PredictionKey=%d"),
-			*GetNameSafe(GetOwner()),
-			*AbilityTag.ToString(),
-			PredictionKey);
 		return;
 	}
 
@@ -112,6 +103,7 @@ void UCP_PredictedAbilityComponent::MulticastConfirmAbilityStarted_Implementatio
 	ActivationInfo.bIsLocallyPredicted = false;
 	ActivationInfo.bIsAuthority = GetOwnerRole() == ROLE_Authority;
 
+	CurrentActiveAbility = Ability;
 	Ability->ActivateAbility(ActivationInfo);
 }
 
@@ -120,15 +112,273 @@ bool UCP_PredictedAbilityComponent::SendAbilityEvent(FGameplayTag AbilityTag, FN
 	UCP_PredictedGameplayAbility* Ability = FindAbilityByTag(AbilityTag);
 	if (!Ability)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Ability event %s failed. No ability for tag %s on %s"),
-			*EventName.ToString(),
-			*AbilityTag.ToString(),
-			*GetNameSafe(GetOwner()));
 		return false;
 	}
 
 	Ability->HandleAbilityEvent(EventName, Ability->GetCurrentActivationInfo());
 	return true;
+}
+
+bool UCP_PredictedAbilityComponent::SendEventToCurrentAbility(FName EventName)
+{
+	if (!CurrentActiveAbility)
+	{
+		return false;
+	}
+
+	CurrentActiveAbility->HandleAbilityEvent(EventName, CurrentActiveAbility->GetCurrentActivationInfo());
+	return true;
+}
+
+void UCP_PredictedAbilityComponent::ConfirmHitReaction(AActor* TargetActor, UAnimMontage* HitMontage, int32 PredictionKey)
+{
+	if (GetOwnerRole() != ROLE_Authority || !TargetActor || !HitMontage)
+	{
+		return;
+	}
+
+	if (UCP_PredictedAbilityComponent* TargetAbilityComponent = TargetActor->FindComponentByClass<UCP_PredictedAbilityComponent>())
+	{
+		TargetAbilityComponent->ClientPlayOwnedHitReaction(HitMontage, PredictionKey);
+
+		const float ToleranceDuration = HitMontage->GetPlayLength() + GetTargetOwnerOneWayLatency(TargetActor) + 0.1f;
+		TargetAbilityComponent->BeginHitReactionMovementTolerance(ToleranceDuration);
+	}
+
+	PlayConfirmedHitReaction(TargetActor, HitMontage, PredictionKey);
+}
+
+void UCP_PredictedAbilityComponent::MulticastPlayHitReaction_Implementation(AActor* TargetActor, UAnimMontage* HitMontage, int32 PredictionKey, float ServerStartTime)
+{
+	if (!TargetActor || !HitMontage)
+	{
+		return;
+	}
+
+	// The attacking owning client already predicted this target reaction.
+	if (GetOwnerRole() != ROLE_Authority && IsLocallyControlledAvatar())
+	{
+		return;
+	}
+
+	const APawn* TargetPawn = Cast<APawn>(TargetActor);
+	if (TargetPawn && TargetPawn->IsLocallyControlled())
+	{
+		return;
+	}
+
+	if (GetOwnerRole() == ROLE_Authority)
+	{
+		return;
+	}
+
+	const UWorld* World = GetWorld();
+	const AGameStateBase* GameState = World ? World->GetGameState() : nullptr;
+	const float CurrentServerTime = GameState ? GameState->GetServerWorldTimeSeconds() : ServerStartTime;
+	const float StartPosition = FMath::Clamp(CurrentServerTime - ServerStartTime, 0.f, HitMontage->GetPlayLength());
+
+	PlayHitReactionOnActor(TargetActor, HitMontage, StartPosition);
+}
+
+void UCP_PredictedAbilityComponent::ClientPlayOwnedHitReaction_Implementation(UAnimMontage* HitMontage, int32 PredictionKey)
+{
+	if (GetOwnerRole() == ROLE_Authority)
+	{
+		return;
+	}
+
+	PlayHitReactionOnActor(GetOwner(), HitMontage, 0.f);
+}
+
+bool UCP_PredictedAbilityComponent::PlayHitReactionOnActor(AActor* TargetActor, UAnimMontage* HitMontage, float StartPosition) const
+{
+	if (!TargetActor || !HitMontage)
+	{
+		return false;
+	}
+
+	USkeletalMeshComponent* MeshComponent = TargetActor->FindComponentByClass<USkeletalMeshComponent>();
+	if (!MeshComponent)
+	{
+		return false;
+	}
+
+	UAnimInstance* AnimInstance = MeshComponent->GetAnimInstance();
+	if (!AnimInstance)
+	{
+		return false;
+	}
+
+	AnimInstance->Montage_Play(HitMontage, 1.f, EMontagePlayReturnType::MontageLength, StartPosition);
+	return true;
+}
+
+float UCP_PredictedAbilityComponent::GetTargetOwnerOneWayLatency(AActor* TargetActor) const
+{
+	const APawn* TargetPawn = Cast<APawn>(TargetActor);
+	const APlayerState* PlayerState = TargetPawn ? TargetPawn->GetPlayerState() : nullptr;
+	if (!PlayerState)
+	{
+		return 0.f;
+	}
+
+	constexpr float MaxDelaySeconds = 0.5f;
+	return FMath::Clamp(PlayerState->GetPingInMilliseconds() * 0.001f * 0.5f, 0.f, MaxDelaySeconds);
+}
+
+void UCP_PredictedAbilityComponent::BeginHitReactionMovementTolerance(float Duration)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return;
+	}
+
+	UCharacterMovementComponent* MovementComponent = GetOwner()
+		? GetOwner()->FindComponentByClass<UCharacterMovementComponent>()
+		: nullptr;
+	if (!MovementComponent)
+	{
+		return;
+	}
+
+	if (HitReactionMovementToleranceCount == 0)
+	{
+		bSavedIgnoreClientMovementErrorChecksAndCorrection = MovementComponent->bIgnoreClientMovementErrorChecksAndCorrection;
+		bSavedServerAcceptClientAuthoritativePosition = MovementComponent->bServerAcceptClientAuthoritativePosition;
+	}
+
+	++HitReactionMovementToleranceCount;
+	MovementComponent->bIgnoreClientMovementErrorChecksAndCorrection = true;
+	MovementComponent->bServerAcceptClientAuthoritativePosition = true;
+
+	FTimerHandle TimerHandle;
+	GetWorld()->GetTimerManager().SetTimer(
+		TimerHandle,
+		FTimerDelegate::CreateWeakLambda(this, [this]()
+		{
+			EndHitReactionMovementTolerance();
+		}),
+		FMath::Max(Duration, 0.01f),
+		false);
+}
+
+void UCP_PredictedAbilityComponent::EndHitReactionMovementTolerance()
+{
+	if (HitReactionMovementToleranceCount <= 0)
+	{
+		return;
+	}
+
+	--HitReactionMovementToleranceCount;
+	if (HitReactionMovementToleranceCount > 0)
+	{
+		return;
+	}
+
+	UCharacterMovementComponent* MovementComponent = GetOwner()
+		? GetOwner()->FindComponentByClass<UCharacterMovementComponent>()
+		: nullptr;
+	if (!MovementComponent)
+	{
+		return;
+	}
+
+	MovementComponent->bIgnoreClientMovementErrorChecksAndCorrection = bSavedIgnoreClientMovementErrorChecksAndCorrection;
+	MovementComponent->bServerAcceptClientAuthoritativePosition = bSavedServerAcceptClientAuthoritativePosition;
+}
+
+void UCP_PredictedAbilityComponent::BeginLocalPredictedTargetReaction(float Duration)
+{
+	AActor* OwnerActor = GetOwner();
+	if (!OwnerActor || GetOwnerRole() != ROLE_SimulatedProxy)
+	{
+		return;
+	}
+
+	if (LocalPredictedTargetReactionCount == 0)
+	{
+		bSavedReplicateMovementForLocalPrediction = OwnerActor->IsReplicatingMovement();
+		OwnerActor->SetReplicateMovement(false);
+
+		if (UCharacterMovementComponent* MovementComponent = OwnerActor->FindComponentByClass<UCharacterMovementComponent>())
+		{
+			SavedNetworkSmoothingModeForLocalPrediction = MovementComponent->NetworkSmoothingMode;
+			MovementComponent->NetworkSmoothingMode = ENetworkSmoothingMode::Disabled;
+		}
+	}
+
+	++LocalPredictedTargetReactionCount;
+
+	FTimerHandle TimerHandle;
+	GetWorld()->GetTimerManager().SetTimer(
+		TimerHandle,
+		FTimerDelegate::CreateWeakLambda(this, [this]()
+		{
+			EndLocalPredictedTargetReaction();
+		}),
+		FMath::Max(Duration, 0.01f),
+		false);
+}
+
+void UCP_PredictedAbilityComponent::EndLocalPredictedTargetReaction()
+{
+	if (LocalPredictedTargetReactionCount <= 0)
+	{
+		return;
+	}
+
+	--LocalPredictedTargetReactionCount;
+	if (LocalPredictedTargetReactionCount > 0)
+	{
+		return;
+	}
+
+	if (AActor* OwnerActor = GetOwner())
+	{
+		OwnerActor->SetReplicateMovement(bSavedReplicateMovementForLocalPrediction);
+	}
+
+	FTimerHandle TimerHandle;
+	GetWorld()->GetTimerManager().SetTimer(
+		TimerHandle,
+		FTimerDelegate::CreateWeakLambda(this, [this]()
+		{
+			RestoreLocalPredictionNetworkSmoothing();
+		}),
+		0.05f,
+		false);
+}
+
+void UCP_PredictedAbilityComponent::RestoreLocalPredictionNetworkSmoothing()
+{
+	if (LocalPredictedTargetReactionCount > 0)
+	{
+		return;
+	}
+
+	if (AActor* OwnerActor = GetOwner())
+	{
+		if (UCharacterMovementComponent* MovementComponent = OwnerActor->FindComponentByClass<UCharacterMovementComponent>())
+		{
+			MovementComponent->NetworkSmoothingMode = SavedNetworkSmoothingModeForLocalPrediction;
+		}
+	}
+}
+
+void UCP_PredictedAbilityComponent::PlayConfirmedHitReaction(AActor* TargetActor, UAnimMontage* HitMontage, int32 PredictionKey)
+{
+	if (GetOwnerRole() != ROLE_Authority || !TargetActor || !HitMontage)
+	{
+		return;
+	}
+
+	PlayHitReactionOnActor(TargetActor, HitMontage, 0.f);
+
+	const UWorld* World = GetWorld();
+	const AGameStateBase* GameState = World ? World->GetGameState() : nullptr;
+	const float ServerStartTime = GameState ? GameState->GetServerWorldTimeSeconds() : 0.f;
+
+	MulticastPlayHitReaction(TargetActor, HitMontage, PredictionKey, ServerStartTime);
 }
 
 void UCP_PredictedAbilityComponent::GrantDefaultAbilities()
@@ -152,20 +402,11 @@ void UCP_PredictedAbilityComponent::ServerTryActivateAbilityByTag_Implementation
 	UCP_PredictedGameplayAbility* Ability = FindAbilityByTag(AbilityTag);
 	if (!Ability)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Server could not find predicted ability. Owner=%s Tag=%s PredictionKey=%d"),
-			*GetNameSafe(GetOwner()),
-			*AbilityTag.ToString(),
-			PredictionKey);
 		return;
 	}
 
 	if (!Ability->CanActivateAbility())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Server blocked predicted ability. Owner=%s Ability=%s Tag=%s PredictionKey=%d"),
-			*GetNameSafe(GetOwner()),
-			*GetNameSafe(Ability),
-			*AbilityTag.ToString(),
-			PredictionKey);
 		return;
 	}
 	
@@ -175,6 +416,7 @@ void UCP_PredictedAbilityComponent::ServerTryActivateAbilityByTag_Implementation
 	ActivationInfo.bIsLocallyPredicted = false;
 	ActivationInfo.bIsAuthority = true;
 
+	CurrentActiveAbility = Ability;
 	Ability->ActivateAbility(ActivationInfo);
 	
 	MulticastConfirmAbilityStarted(AbilityTag, PredictionKey);

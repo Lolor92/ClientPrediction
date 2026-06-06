@@ -72,6 +72,17 @@ public:
 		FHitResult& OutHit,
 		bool bDrawDebug = false
 	) const;
+
+	UFUNCTION(BlueprintCallable, Category="Predicted Ability|Melee")
+	bool ProcessPredictedMeleeHit(
+		const FCP_PredictedAbilityActivationInfo& ActivationInfo,
+		UAnimMontage* HitReactMontage,
+		float TraceDistance,
+		float TraceRadius,
+		TEnumAsByte<ECollisionChannel> TraceChannel,
+		FHitResult& OutHit,
+		bool bDrawDebug = false
+	) const;
 	
 protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Predicted Ability")
