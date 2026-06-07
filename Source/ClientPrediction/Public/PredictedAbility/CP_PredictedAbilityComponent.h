@@ -78,7 +78,6 @@ private:
 	void BeginHitReactionMovementTolerance(float Duration);
 	void EndHitReactionMovementTolerance();
 	void EndLocalPredictedTargetReaction();
-	void RestoreLocalPredictionNetworkSmoothing();
 	void PlayConfirmedHitReaction(AActor* TargetActor, UAnimMontage* HitMontage, int32 PredictionKey);
 	void ForceTargetNetUpdate(AActor* TargetActor) const;
 	void ScheduleTargetNetUpdate(AActor* TargetActor, float Delay) const;
@@ -105,8 +104,6 @@ private:
 	bool bSavedServerAcceptClientAuthoritativePosition = false;
 	int32 HitReactionMovementToleranceCount = 0;
 
-	bool bSavedReplicateMovementForLocalPrediction = true;
-	ENetworkSmoothingMode SavedNetworkSmoothingModeForLocalPrediction = ENetworkSmoothingMode::Exponential;
 	int32 LocalPredictedTargetReactionCount = 0;
 	
 	int32 NextPredictionKey = 1;

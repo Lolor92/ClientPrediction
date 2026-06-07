@@ -141,8 +141,9 @@ void UCP_PredictedAbilityComponent::ConfirmHitReaction(AActor* TargetActor, UAni
 	{
 		TargetAbilityComponent->ClientPlayOwnedHitReaction(HitMontage, PredictionKey);
 
-		const float ToleranceDuration = HitMontage->GetPlayLength() + GetTargetOwnerOneWayLatency(TargetActor) + 0.1f;
-		TargetAbilityComponent->BeginHitReactionMovementTolerance(ToleranceDuration);
+		// Keep the server fully authoritative while testing hit-reaction desync.
+		// const float ToleranceDuration = HitMontage->GetPlayLength() + GetTargetOwnerOneWayLatency(TargetActor) + 0.1f;
+		// TargetAbilityComponent->BeginHitReactionMovementTolerance(ToleranceDuration);
 	}
 
 	PlayConfirmedHitReaction(TargetActor, HitMontage, PredictionKey);
@@ -209,6 +210,19 @@ bool UCP_PredictedAbilityComponent::PlayHitReactionOnActor(AActor* TargetActor, 
 	if (!AnimInstance)
 	{
 		return false;
+	}
+
+	if (AnimInstance->Montage_IsPlaying(HitMontage))
+	{
+		const float CurrentPos = AnimInstance->Montage_GetPosition(HitMontage);
+
+		if (FMath::Abs(CurrentPos - StartPosition) < 0.20f)
+		{
+			return true;
+		}
+
+		AnimInstance->Montage_SetPosition(HitMontage, StartPosition);
+		return true;
 	}
 
 	AnimInstance->Montage_Play(HitMontage, 1.f, EMontagePlayReturnType::MontageLength, StartPosition);
@@ -291,22 +305,9 @@ void UCP_PredictedAbilityComponent::EndHitReactionMovementTolerance()
 
 void UCP_PredictedAbilityComponent::BeginLocalPredictedTargetReaction(float Duration)
 {
-	AActor* OwnerActor = GetOwner();
-	if (!OwnerActor || GetOwnerRole() != ROLE_SimulatedProxy)
+	if (!GetOwner() || GetOwnerRole() != ROLE_SimulatedProxy)
 	{
 		return;
-	}
-
-	if (LocalPredictedTargetReactionCount == 0)
-	{
-		bSavedReplicateMovementForLocalPrediction = OwnerActor->IsReplicatingMovement();
-		OwnerActor->SetReplicateMovement(false);
-
-		if (UCharacterMovementComponent* MovementComponent = OwnerActor->FindComponentByClass<UCharacterMovementComponent>())
-		{
-			SavedNetworkSmoothingModeForLocalPrediction = MovementComponent->NetworkSmoothingMode;
-			MovementComponent->NetworkSmoothingMode = ENetworkSmoothingMode::Disabled;
-		}
 	}
 
 	++LocalPredictedTargetReactionCount;
@@ -365,37 +366,6 @@ void UCP_PredictedAbilityComponent::EndLocalPredictedTargetReaction()
 	if (LocalPredictedTargetReactionCount > 0)
 	{
 		return;
-	}
-
-	if (AActor* OwnerActor = GetOwner())
-	{
-		OwnerActor->SetReplicateMovement(bSavedReplicateMovementForLocalPrediction);
-	}
-
-	FTimerHandle TimerHandle;
-	GetWorld()->GetTimerManager().SetTimer(
-		TimerHandle,
-		FTimerDelegate::CreateWeakLambda(this, [this]()
-		{
-			RestoreLocalPredictionNetworkSmoothing();
-		}),
-		0.05f,
-		false);
-}
-
-void UCP_PredictedAbilityComponent::RestoreLocalPredictionNetworkSmoothing()
-{
-	if (LocalPredictedTargetReactionCount > 0)
-	{
-		return;
-	}
-
-	if (AActor* OwnerActor = GetOwner())
-	{
-		if (UCharacterMovementComponent* MovementComponent = OwnerActor->FindComponentByClass<UCharacterMovementComponent>())
-		{
-			MovementComponent->NetworkSmoothingMode = SavedNetworkSmoothingModeForLocalPrediction;
-		}
 	}
 }
 
