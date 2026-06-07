@@ -2,7 +2,6 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
-#include "Engine/EngineTypes.h"
 #include "GameplayTagContainer.h"
 #include "CP_PredictedAbilityComponent.generated.h"
 
@@ -89,12 +88,10 @@ public:
 private:
 	void GrantDefaultAbilities();
 	bool PlayHitReactionOnActor(AActor* TargetActor, UAnimMontage* HitMontage, float StartPosition) const;
-	float GetTargetOwnerOneWayLatency(AActor* TargetActor) const;
 	void BeginHitReactionMovementTolerance(float Duration);
 	void EndHitReactionMovementTolerance();
 	void EndLocalPredictedTargetReaction();
 	void PlayConfirmedHitReaction(AActor* TargetActor, UAnimMontage* HitMontage, int32 PredictionKey);
-	void ForceTargetNetUpdate(AActor* TargetActor) const;
 	void ScheduleTargetNetUpdate(AActor* TargetActor, float Delay) const;
 	bool HasServerConfirmedHitReaction(AActor* TargetActor, UAnimMontage* HitMontage, int32 PredictionKey) const;
 	void MarkServerConfirmedHitReaction(AActor* TargetActor, UAnimMontage* HitMontage, int32 PredictionKey);

@@ -6,7 +6,6 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/Pawn.h"
-#include "GameFramework/PlayerState.h"
 #include "TimerManager.h"
 
 UCP_PredictedAbilityComponent::UCP_PredictedAbilityComponent()
@@ -142,23 +141,10 @@ void UCP_PredictedAbilityComponent::ConfirmHitReaction(
 
 	if (HasServerConfirmedHitReaction(TargetActor, HitMontage, PredictionKey))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("SERVER DUPLICATE BLOCKED Target=%s Montage=%s Key=%d Time=%.3f"),
-			*GetNameSafe(TargetActor),
-			*GetNameSafe(HitMontage),
-			PredictionKey,
-			GetWorld() ? GetWorld()->GetTimeSeconds() : -1.f);
-
 		return;
 	}
 
 	MarkServerConfirmedHitReaction(TargetActor, HitMontage, PredictionKey);
-
-	UE_LOG(LogTemp, Warning, TEXT("SERVER ACCEPTED ConfirmHitReaction Owner=%s Target=%s Montage=%s Key=%d Time=%.3f"),
-		*GetNameSafe(GetOwner()),
-		*GetNameSafe(TargetActor),
-		*GetNameSafe(HitMontage),
-		PredictionKey,
-		GetWorld() ? GetWorld()->GetTimeSeconds() : -1.f);
 
 	if (UCP_PredictedAbilityComponent* TargetAbilityComponent =
 		TargetActor->FindComponentByClass<UCP_PredictedAbilityComponent>())
@@ -256,19 +242,6 @@ bool UCP_PredictedAbilityComponent::PlayHitReactionOnActor(AActor* TargetActor, 
 	return true;
 }
 
-float UCP_PredictedAbilityComponent::GetTargetOwnerOneWayLatency(AActor* TargetActor) const
-{
-	const APawn* TargetPawn = Cast<APawn>(TargetActor);
-	const APlayerState* PlayerState = TargetPawn ? TargetPawn->GetPlayerState() : nullptr;
-	if (!PlayerState)
-	{
-		return 0.f;
-	}
-
-	constexpr float MaxDelaySeconds = 0.5f;
-	return FMath::Clamp(PlayerState->GetPingInMilliseconds() * 0.001f * 0.5f, 0.f, MaxDelaySeconds);
-}
-
 void UCP_PredictedAbilityComponent::BeginHitReactionMovementTolerance(float Duration)
 {
 	if (GetOwnerRole() != ROLE_Authority)
@@ -319,11 +292,6 @@ void UCP_PredictedAbilityComponent::BeginHitReactionMovementTolerance(float Dura
 	MovementComponent->bIgnoreClientMovementErrorChecksAndCorrection = true;
 	MovementComponent->bServerAcceptClientAuthoritativePosition = false;
 
-	UE_LOG(LogTemp, Warning, TEXT("SERVER HIT REACTION TOLERANCE START Owner=%s Duration=%.3f Count=%d IgnoreCorrection=true AcceptClientPos=false"),
-		*GetNameSafe(OwnerActor),
-		Duration,
-		HitReactionMovementToleranceCount);
-
 	FTimerHandle TimerHandle;
 
 	World->GetTimerManager().SetTimer(
@@ -369,11 +337,6 @@ void UCP_PredictedAbilityComponent::EndHitReactionMovementTolerance()
 
 	MovementComponent->bServerAcceptClientAuthoritativePosition =
 		bSavedServerAcceptClientAuthoritativePosition;
-
-	UE_LOG(LogTemp, Warning, TEXT("SERVER HIT REACTION TOLERANCE END Owner=%s RestoredIgnoreCorrection=%s RestoredAcceptClientPos=%s"),
-		*GetNameSafe(OwnerActor),
-		bSavedIgnoreClientMovementErrorChecksAndCorrection ? TEXT("true") : TEXT("false"),
-		bSavedServerAcceptClientAuthoritativePosition ? TEXT("true") : TEXT("false"));
 
 	OwnerActor->ForceNetUpdate();
 }
@@ -438,10 +401,6 @@ void UCP_PredictedAbilityComponent::EndLocalPredictedTargetReaction()
 	}
 
 	--LocalPredictedTargetReactionCount;
-	if (LocalPredictedTargetReactionCount > 0)
-	{
-		return;
-	}
 }
 
 void UCP_PredictedAbilityComponent::PlayConfirmedHitReaction(AActor* TargetActor, UAnimMontage* HitMontage, int32 PredictionKey)
@@ -452,8 +411,6 @@ void UCP_PredictedAbilityComponent::PlayConfirmedHitReaction(AActor* TargetActor
 	}
 
 	PlayHitReactionOnActor(TargetActor, HitMontage, 0.f);
-	// Avoid forcing a movement update while clients may be playing predicted root motion.
-	// ForceTargetNetUpdate(TargetActor);
 
 	const UWorld* World = GetWorld();
 	const AGameStateBase* GameState = World ? World->GetGameState() : nullptr;
@@ -463,16 +420,6 @@ void UCP_PredictedAbilityComponent::PlayConfirmedHitReaction(AActor* TargetActor
 
 	const float FinalUpdateDelay = HitMontage->GetPlayLength() + HitMontage->GetDefaultBlendOutTime() + 0.05f;
 	ScheduleTargetNetUpdate(TargetActor, FinalUpdateDelay);
-}
-
-void UCP_PredictedAbilityComponent::ForceTargetNetUpdate(AActor* TargetActor) const
-{
-	if (!bForceNetUpdateOnConfirmedHit || GetOwnerRole() != ROLE_Authority || !TargetActor)
-	{
-		return;
-	}
-
-	TargetActor->ForceNetUpdate();
 }
 
 void UCP_PredictedAbilityComponent::ScheduleTargetNetUpdate(AActor* TargetActor, float Delay) const
@@ -490,19 +437,20 @@ void UCP_PredictedAbilityComponent::ScheduleTargetNetUpdate(AActor* TargetActor,
 
 	if (Delay <= 0.f)
 	{
-		ForceTargetNetUpdate(TargetActor);
+		TargetActor->ForceNetUpdate();
 		return;
 	}
 
 	TWeakObjectPtr<AActor> WeakTargetActor = TargetActor;
+
 	FTimerHandle TimerHandle;
 	World->GetTimerManager().SetTimer(
 		TimerHandle,
-		FTimerDelegate::CreateWeakLambda(this, [this, WeakTargetActor]()
+		FTimerDelegate::CreateWeakLambda(this, [WeakTargetActor]()
 		{
 			if (AActor* StrongTargetActor = WeakTargetActor.Get())
 			{
-				ForceTargetNetUpdate(StrongTargetActor);
+				StrongTargetActor->ForceNetUpdate();
 			}
 		}),
 		Delay,
