@@ -52,49 +52,38 @@ public:
 	UFUNCTION(BlueprintNativeEvent, Category="Predicted Ability")
 	void ActivateAbility(const FCP_PredictedAbilityActivationInfo& ActivationInfo);
 
-	UFUNCTION(BlueprintCallable, Category="Predicted Ability")
-	FGameplayTag GetAbilityTag() const { return AbilityTag; }
-	
-	UFUNCTION(BlueprintImplementableEvent, Category="Predicted Ability")
-	void BP_OnAbilityGranted();
-	
-	UFUNCTION(BlueprintCallable, Category="Predicted Ability|Animation")
-	float PlayAvatarMontage(UAnimMontage* Montage, float PlayRate = 1.f, FName StartSection = NAME_None) const;
-	
+	UFUNCTION(BlueprintNativeEvent, Category="Predicted Ability")
+	void HandleAbilityEvent(FName EventName, const FCP_PredictedAbilityActivationInfo& ActivationInfo);
+
 	UFUNCTION(BlueprintCallable, Category="Predicted Ability")
 	UCP_PredictedAbilityComponent* GetOwningPredictedAbilityComponent() const { return OwningComponent; }
 
 	UFUNCTION(BlueprintCallable, Category="Predicted Ability")
 	AActor* GetAvatarActor() const;
+
+	UFUNCTION(BlueprintCallable, Category="Predicted Ability")
+	FGameplayTag GetAbilityTag() const { return AbilityTag; }
 	
 	UFUNCTION(BlueprintCallable, Category="Predicted Ability")
 	FCP_PredictedAbilityActivationInfo GetCurrentActivationInfo() const { return CurrentActivationInfo; }
 	
-	UFUNCTION(BlueprintNativeEvent, Category="Predicted Ability")
-	void HandleAbilityEvent(FName EventName, const FCP_PredictedAbilityActivationInfo& ActivationInfo);
+	UFUNCTION(BlueprintImplementableEvent, Category="Predicted Ability")
+	void BP_OnAbilityGranted();
+
+	UFUNCTION(BlueprintCallable, Category="Predicted Ability|Animation")
+	float PlayAvatarMontage(UAnimMontage* Montage, float PlayRate = 1.f, FName StartSection = NAME_None) const;
 	
 	UFUNCTION(BlueprintCallable, Category="Predicted Ability|Animation")
 	float PlayMontageOnActor(AActor* TargetActor, UAnimMontage* Montage, float PlayRate = 1.f, FName StartSection = NAME_None) const;
 	
 	UFUNCTION(BlueprintCallable, Category="Predicted Ability|Targeting")
-	bool TraceAvatarForward(
-		float Distance,
-		float Radius,
-		TEnumAsByte<ECollisionChannel> TraceChannel,
-		FHitResult& OutHit,
-		bool bDrawDebug = false
-	) const;
+	bool TraceAvatarForward(float Distance, float Radius, TEnumAsByte<ECollisionChannel> TraceChannel,
+		FHitResult& OutHit, bool bDrawDebug = false) const;
 
 	UFUNCTION(BlueprintCallable, Category="Predicted Ability|Melee")
-	bool ProcessPredictedMeleeHit(
-		const FCP_PredictedAbilityActivationInfo& ActivationInfo,
-		UAnimMontage* HitReactMontage,
-		float TraceDistance,
-		float TraceRadius,
-		TEnumAsByte<ECollisionChannel> TraceChannel,
-		FHitResult& OutHit,
-		bool bDrawDebug = false
-	);
+	bool ProcessPredictedMeleeHit(const FCP_PredictedAbilityActivationInfo& ActivationInfo, UAnimMontage* HitReactMontage,
+		float TraceDistance, float TraceRadius, TEnumAsByte<ECollisionChannel> TraceChannel, FHitResult& OutHit,
+		bool bDrawDebug = false);
 	
 protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Predicted Ability")
@@ -111,5 +100,6 @@ protected:
 
 	bool HasProcessedMeleeHit(AActor* HitActor, int32 PredictionKey) const;
 	void MarkProcessedMeleeHit(AActor* HitActor, int32 PredictionKey);
+	float CalculatePredictedTargetReactionDuration(UAnimMontage* HitReactMontage) const;
 	
 };

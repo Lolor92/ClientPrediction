@@ -1,4 +1,4 @@
-﻿#include "PredictedAbility/CP_PredictedGameplayAbility.h"
+#include "PredictedAbility/CP_PredictedGameplayAbility.h"
 #include "PredictedAbility/CP_PredictedAbilityComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
@@ -14,50 +14,6 @@ void UCP_PredictedGameplayAbility::InitializeAbility(UCP_PredictedAbilityCompone
 	BP_OnAbilityGranted();
 }
 
-float UCP_PredictedGameplayAbility::PlayAvatarMontage(UAnimMontage* Montage, float PlayRate, FName StartSection) const
-{
-	return PlayMontageOnActor(GetAvatarActor(), Montage, PlayRate, StartSection);
-}
-
-AActor* UCP_PredictedGameplayAbility::GetAvatarActor() const
-{
-	return OwningComponent ? OwningComponent->GetOwner() : nullptr;
-}
-
-float UCP_PredictedGameplayAbility::PlayMontageOnActor(AActor* TargetActor, UAnimMontage* Montage, float PlayRate,
-	FName StartSection) const
-{
-	if (!TargetActor || !Montage)
-	{
-		return 0.f;
-	}
-
-	USkeletalMeshComponent* MeshComponent = TargetActor->FindComponentByClass<USkeletalMeshComponent>();
-	if (!MeshComponent)
-	{
-		return 0.f;
-	}
-
-	UAnimInstance* AnimInstance = MeshComponent->GetAnimInstance();
-	if (!AnimInstance)
-	{
-		return 0.f;
-	}
-
-	const float Duration = AnimInstance->Montage_Play(Montage, PlayRate);
-	if (Duration > 0.f && StartSection != NAME_None)
-	{
-		AnimInstance->Montage_JumpToSection(StartSection, Montage);
-	}
-
-	return Duration;
-}
-
-void UCP_PredictedGameplayAbility::HandleAbilityEvent_Implementation(FName EventName,
-                                                                     const FCP_PredictedAbilityActivationInfo& ActivationInfo)
-{
-}
-
 bool UCP_PredictedGameplayAbility::CanActivateAbility_Implementation() const
 {
 	return true;
@@ -68,24 +24,49 @@ void UCP_PredictedGameplayAbility::ActivateAbility_Implementation(const FCP_Pred
 	CurrentActivationInfo = ActivationInfo;
 }
 
-bool UCP_PredictedGameplayAbility::TraceAvatarForward(
-	float Distance,
-	float Radius,
-	TEnumAsByte<ECollisionChannel> TraceChannel,
-	FHitResult& OutHit,
-	bool bDrawDebug) const
+void UCP_PredictedGameplayAbility::HandleAbilityEvent_Implementation(FName EventName,
+                                                                     const FCP_PredictedAbilityActivationInfo& ActivationInfo)
 {
-	AActor* AvatarActor = GetAvatarActor();
-	if (!AvatarActor)
+}
+
+AActor* UCP_PredictedGameplayAbility::GetAvatarActor() const
+{
+	return OwningComponent ? OwningComponent->GetOwner() : nullptr;
+}
+
+float UCP_PredictedGameplayAbility::PlayAvatarMontage(UAnimMontage* Montage, float PlayRate, FName StartSection) const
+{
+	return PlayMontageOnActor(GetAvatarActor(), Montage, PlayRate, StartSection);
+}
+
+float UCP_PredictedGameplayAbility::PlayMontageOnActor(AActor* TargetActor, UAnimMontage* Montage, float PlayRate,
+	FName StartSection) const
+{
+	if (!TargetActor || !Montage) return 0.f;
+
+	USkeletalMeshComponent* MeshComponent = TargetActor->FindComponentByClass<USkeletalMeshComponent>();
+	if (!MeshComponent) return 0.f;
+
+	UAnimInstance* AnimInstance = MeshComponent->GetAnimInstance();
+	if (!AnimInstance) return 0.f;
+
+	const float Duration = AnimInstance->Montage_Play(Montage, PlayRate);
+	if (Duration > 0.f && StartSection != NAME_None)
 	{
-		return false;
+		AnimInstance->Montage_JumpToSection(StartSection, Montage);
 	}
 
+	return Duration;
+}
+
+bool UCP_PredictedGameplayAbility::TraceAvatarForward(float Distance, float Radius,
+	TEnumAsByte<ECollisionChannel> TraceChannel, FHitResult& OutHit, bool bDrawDebug) const
+{
+	AActor* AvatarActor = GetAvatarActor();
+	if (!AvatarActor) return false;
+
 	UWorld* World = AvatarActor->GetWorld();
-	if (!World)
-	{
-		return false;
-	}
+	if (!World) return false;
 
 	const FVector Forward = AvatarActor->GetActorForwardVector();
 	const FVector Start = AvatarActor->GetActorLocation() + Forward * 60.f + FVector::UpVector * 50.f;
@@ -94,14 +75,8 @@ bool UCP_PredictedGameplayAbility::TraceAvatarForward(
 	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(CP_PredictedAbilityTrace), false, AvatarActor);
 	QueryParams.AddIgnoredActor(AvatarActor);
 
-	const bool bHit = World->SweepSingleByChannel(
-		OutHit,
-		Start,
-		End,
-		FQuat::Identity,
-		TraceChannel,
-		FCollisionShape::MakeSphere(Radius),
-		QueryParams);
+	const bool bHit = World->SweepSingleByChannel(OutHit, Start, End, FQuat::Identity, TraceChannel,
+		FCollisionShape::MakeSphere(Radius), QueryParams);
 
 	if (bDrawDebug)
 	{
@@ -118,79 +93,19 @@ bool UCP_PredictedGameplayAbility::TraceAvatarForward(
 	return bHit;
 }
 
-bool UCP_PredictedGameplayAbility::HasProcessedMeleeHit(AActor* HitActor, int32 PredictionKey) const
-{
-	if (!HitActor || PredictionKey <= 0)
-	{
-		return false;
-	}
-
-	for (const FCP_ProcessedMeleeHit& Entry : ProcessedMeleeHits)
-	{
-		if (Entry.HitActor == HitActor && Entry.PredictionKey == PredictionKey)
-		{
-			return true;
-		}
-	}
-
-	return false;
-}
-
-void UCP_PredictedGameplayAbility::MarkProcessedMeleeHit(AActor* HitActor, int32 PredictionKey)
-{
-	if (!HitActor || PredictionKey <= 0)
-	{
-		return;
-	}
-
-	FCP_ProcessedMeleeHit Entry;
-	Entry.HitActor = HitActor;
-	Entry.PredictionKey = PredictionKey;
-
-	ProcessedMeleeHits.Add(Entry);
-
-	constexpr int32 MaxProcessedMeleeHits = 32;
-	if (ProcessedMeleeHits.Num() > MaxProcessedMeleeHits)
-	{
-		ProcessedMeleeHits.RemoveAt(0, ProcessedMeleeHits.Num() - MaxProcessedMeleeHits);
-	}
-}
-
 bool UCP_PredictedGameplayAbility::ProcessPredictedMeleeHit(
-	const FCP_PredictedAbilityActivationInfo& ActivationInfo,
-	UAnimMontage* HitReactMontage,
-	float TraceDistance,
-	float TraceRadius,
-	TEnumAsByte<ECollisionChannel> TraceChannel,
-	FHitResult& OutHit,
+	const FCP_PredictedAbilityActivationInfo& ActivationInfo, UAnimMontage* HitReactMontage,
+	float TraceDistance, float TraceRadius, TEnumAsByte<ECollisionChannel> TraceChannel, FHitResult& OutHit,
 	bool bDrawDebug)
 {
-	if (!ActivationInfo.bIsLocallyPredicted && !ActivationInfo.bIsAuthority)
-	{
-		return false;
-	}
+	if (!ActivationInfo.bIsLocallyPredicted && !ActivationInfo.bIsAuthority) return false;
 
-	if (!TraceAvatarForward(TraceDistance, TraceRadius, TraceChannel, OutHit, bDrawDebug))
-	{
-		return false;
-	}
+	if (!TraceAvatarForward(TraceDistance, TraceRadius, TraceChannel, OutHit, bDrawDebug)) return false;
 
 	AActor* HitActor = OutHit.GetActor();
-	if (!HitActor || !HitReactMontage)
-	{
-		return false;
-	}
+	if (!HitActor || !HitReactMontage) return false;
 
-	if (HasProcessedMeleeHit(HitActor, ActivationInfo.PredictionKey))
-	{
-		UE_LOG(LogTemp, Warning,
-			TEXT("%s MELEE HIT DUPLICATE BLOCKED Target=%s Key=%d"),
-			ActivationInfo.bIsAuthority ? TEXT("SERVER") : TEXT("CLIENT"),
-			*GetNameSafe(HitActor),
-			ActivationInfo.PredictionKey);
-
-		return false;
-	}
+	if (HasProcessedMeleeHit(HitActor, ActivationInfo.PredictionKey)) return false;
 
 	MarkProcessedMeleeHit(HitActor, ActivationInfo.PredictionKey);
 
@@ -213,14 +128,8 @@ bool UCP_PredictedGameplayAbility::ProcessPredictedMeleeHit(
 
 		if (UCP_PredictedAbilityComponent* HitAbilityComponent = HitActor->FindComponentByClass<UCP_PredictedAbilityComponent>())
 		{
-			const APawn* AvatarPawn = Cast<APawn>(GetAvatarActor());
-			const APlayerState* PlayerState = AvatarPawn ? AvatarPawn->GetPlayerState() : nullptr;
-			const float AttackerPingSeconds = PlayerState ? PlayerState->GetPingInMilliseconds() * 0.001f : 0.f;
-			const float PredictionBuffer = FMath::Clamp(AttackerPingSeconds + 0.1f, 0.2f, 0.75f);
-			const float BlendOutSettleTime = HitReactMontage->GetDefaultBlendOutTime() + 0.15f;
-
 			HitAbilityComponent->BeginLocalPredictedTargetReaction(
-				HitReactMontage->GetPlayLength() + PredictionBuffer + BlendOutSettleTime);
+				CalculatePredictedTargetReactionDuration(HitReactMontage));
 		}
 
 		PlayMontageOnActor(HitActor, HitReactMontage);
@@ -228,4 +137,50 @@ bool UCP_PredictedGameplayAbility::ProcessPredictedMeleeHit(
 	}
 
 	return false;
+}
+
+bool UCP_PredictedGameplayAbility::HasProcessedMeleeHit(AActor* HitActor, int32 PredictionKey) const
+{
+	if (!HitActor || PredictionKey <= 0) return false;
+
+	for (const FCP_ProcessedMeleeHit& Entry : ProcessedMeleeHits)
+	{
+		if (Entry.HitActor == HitActor && Entry.PredictionKey == PredictionKey) return false;
+	}
+
+	return false;
+}
+
+void UCP_PredictedGameplayAbility::MarkProcessedMeleeHit(AActor* HitActor, int32 PredictionKey)
+{
+	if (!HitActor || PredictionKey <= 0) return;
+
+	FCP_ProcessedMeleeHit Entry;
+	Entry.HitActor = HitActor;
+	Entry.PredictionKey = PredictionKey;
+
+	ProcessedMeleeHits.Add(Entry);
+
+	constexpr int32 MaxProcessedMeleeHits = 32;
+	if (ProcessedMeleeHits.Num() > MaxProcessedMeleeHits)
+	{
+		ProcessedMeleeHits.RemoveAt(0, ProcessedMeleeHits.Num() - MaxProcessedMeleeHits);
+	}
+}
+
+float UCP_PredictedGameplayAbility::CalculatePredictedTargetReactionDuration(UAnimMontage* HitReactMontage) const
+{
+	if (!HitReactMontage) return 0.f;
+
+	const APawn* AvatarPawn = Cast<APawn>(GetAvatarActor());
+	const APlayerState* PlayerState = AvatarPawn ? AvatarPawn->GetPlayerState() : nullptr;
+
+	const float AttackerPingSeconds = PlayerState
+		? PlayerState->GetPingInMilliseconds() * 0.001f
+		: 0.f;
+
+	const float PredictionBuffer = FMath::Clamp(AttackerPingSeconds + 0.1f, 0.2f, 0.75f);
+	const float BlendOutSettleTime = HitReactMontage->GetDefaultBlendOutTime() + 0.15f;
+
+	return HitReactMontage->GetPlayLength() + PredictionBuffer + BlendOutSettleTime;
 }

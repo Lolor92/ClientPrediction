@@ -52,6 +52,8 @@ class CLIENTPREDICTION_API UCP_PredictedAbilityComponent : public UActorComponen
 {
 	GENERATED_BODY()
 
+	friend class UCP_PredictedGameplayAbility;
+
 public:
 	UCP_PredictedAbilityComponent();
 
@@ -82,14 +84,14 @@ public:
 	void MulticastPlayHitReaction(AActor* TargetActor, UAnimMontage* HitMontage, int32 PredictionKey, float ServerStartTime);
 
 	bool ShouldSuppressLocomotionAnimation() const { return LocalPredictedTargetReactionCount > 0; }
-	void BeginLocalPredictedTargetReaction(float Duration);
-	void AddPredictedHitReaction(AActor* TargetActor, int32 PredictionKey);
 	
 private:
 	void GrantDefaultAbilities();
 	bool PlayHitReactionOnActor(AActor* TargetActor, UAnimMontage* HitMontage, float StartPosition) const;
 	void BeginHitReactionMovementTolerance(float Duration);
 	void EndHitReactionMovementTolerance();
+	void BeginLocalPredictedTargetReaction(float Duration);
+	void AddPredictedHitReaction(AActor* TargetActor, int32 PredictionKey);
 	void EndLocalPredictedTargetReaction();
 	void PlayConfirmedHitReaction(AActor* TargetActor, UAnimMontage* HitMontage, int32 PredictionKey);
 	void ScheduleTargetNetUpdate(AActor* TargetActor, float Delay) const;
@@ -112,7 +114,6 @@ private:
 	TObjectPtr<UCP_PredictedGameplayAbility> CurrentActiveAbility = nullptr;
 
 	bool bSavedIgnoreClientMovementErrorChecksAndCorrection = false;
-	bool bSavedServerAcceptClientAuthoritativePosition = false;
 	int32 HitReactionMovementToleranceCount = 0;
 
 	int32 LocalPredictedTargetReactionCount = 0;

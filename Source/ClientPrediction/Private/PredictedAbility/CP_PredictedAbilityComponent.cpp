@@ -45,10 +45,7 @@ UCP_PredictedGameplayAbility* UCP_PredictedAbilityComponent::FindAbilityByTag(FG
 bool UCP_PredictedAbilityComponent::TryActivateAbilityByTag(FGameplayTag AbilityTag)
 {
 	UCP_PredictedGameplayAbility* Ability = FindAbilityByTag(AbilityTag);
-	if (!Ability || !Ability->CanActivateAbility())
-	{
-		return false;
-	}
+	if (!Ability || !Ability->CanActivateAbility()) return false;
 
 	const bool bIsAuthority = GetOwnerRole() == ROLE_Authority;
 	const bool bIsLocallyControlled = IsLocallyControlledAvatar();
@@ -83,16 +80,10 @@ void UCP_PredictedAbilityComponent::MulticastConfirmAbilityStarted_Implementatio
 	if (GetOwnerRole() == ROLE_Authority) return;
 	
 	const bool bWasPredictedHere = ConsumePendingPrediction(AbilityTag, PredictionKey);
-	if (bWasPredictedHere)
-	{
-		return;
-	}
+	if (bWasPredictedHere) return;
 
 	UCP_PredictedGameplayAbility* Ability = FindAbilityByTag(AbilityTag);
-	if (!Ability)
-	{
-		return;
-	}
+	if (!Ability) return;
 
 	FCP_PredictedAbilityActivationInfo ActivationInfo;
 	ActivationInfo.PredictionKey = PredictionKey;
@@ -107,10 +98,7 @@ void UCP_PredictedAbilityComponent::MulticastConfirmAbilityStarted_Implementatio
 bool UCP_PredictedAbilityComponent::SendAbilityEvent(FGameplayTag AbilityTag, FName EventName)
 {
 	UCP_PredictedGameplayAbility* const Ability = FindAbilityByTag(AbilityTag);
-	if (!Ability)
-	{
-		return false;
-	}
+	if (!Ability) return false;
 
 	Ability->HandleAbilityEvent(EventName, Ability->GetCurrentActivationInfo());
 	return true;
@@ -118,29 +106,18 @@ bool UCP_PredictedAbilityComponent::SendAbilityEvent(FGameplayTag AbilityTag, FN
 
 bool UCP_PredictedAbilityComponent::SendEventToCurrentAbility(FName EventName)
 {
-	if (!CurrentActiveAbility)
-	{
-		return false;
-	}
+	if (!CurrentActiveAbility) return false;
 
 	CurrentActiveAbility->HandleAbilityEvent(EventName, CurrentActiveAbility->GetCurrentActivationInfo());
 	return true;
 }
 
-void UCP_PredictedAbilityComponent::ConfirmHitReaction(
-	AActor* TargetActor,
-	UAnimMontage* HitMontage,
+void UCP_PredictedAbilityComponent::ConfirmHitReaction(AActor* TargetActor, UAnimMontage* HitMontage,
 	int32 PredictionKey)
 {
-	if (GetOwnerRole() != ROLE_Authority || !TargetActor || !HitMontage)
-	{
-		return;
-	}
+	if (GetOwnerRole() != ROLE_Authority || !TargetActor || !HitMontage) return;
 
-	if (HasServerConfirmedHitReaction(TargetActor, HitMontage, PredictionKey))
-	{
-		return;
-	}
+	if (HasServerConfirmedHitReaction(TargetActor, HitMontage, PredictionKey)) return;
 
 	MarkServerConfirmedHitReaction(TargetActor, HitMontage, PredictionKey);
 
@@ -154,10 +131,7 @@ void UCP_PredictedAbilityComponent::ConfirmHitReaction(
 		 * While that root motion is happening, the server temporarily accepts that
 		 * client movement instead of constantly correcting it.
 		 */
-		const float ToleranceDuration =
-			HitMontage->GetPlayLength()
-			+ HitMontage->GetDefaultBlendOutTime()
-			+ 0.05f;
+		const float ToleranceDuration = HitMontage->GetPlayLength() + HitMontage->GetDefaultBlendOutTime() + 0.05f;
 
 		TargetAbilityComponent->BeginHitReactionMovementTolerance(ToleranceDuration);
 
@@ -169,29 +143,17 @@ void UCP_PredictedAbilityComponent::ConfirmHitReaction(
 
 void UCP_PredictedAbilityComponent::MulticastPlayHitReaction_Implementation(AActor* TargetActor, UAnimMontage* HitMontage, int32 PredictionKey, float ServerStartTime)
 {
-	if (!TargetActor || !HitMontage)
-	{
-		return;
-	}
+	if (!TargetActor || !HitMontage) return;
 
 	if (GetOwnerRole() != ROLE_Authority && IsLocallyControlledAvatar())
 	{
-		if (ConsumePredictedHitReaction(TargetActor, PredictionKey))
-		{
-			return;
-		}
+		if (ConsumePredictedHitReaction(TargetActor, PredictionKey)) return;
 	}
 
 	const APawn* TargetPawn = Cast<APawn>(TargetActor);
-	if (TargetPawn && TargetPawn->IsLocallyControlled())
-	{
-		return;
-	}
+	if (TargetPawn && TargetPawn->IsLocallyControlled()) return;
 
-	if (GetOwnerRole() == ROLE_Authority)
-	{
-		return;
-	}
+	if (GetOwnerRole() == ROLE_Authority) return;
 
 	const UWorld* World = GetWorld();
 	const AGameStateBase* GameState = World ? World->GetGameState() : nullptr;
@@ -203,32 +165,20 @@ void UCP_PredictedAbilityComponent::MulticastPlayHitReaction_Implementation(AAct
 
 void UCP_PredictedAbilityComponent::ClientPlayOwnedHitReaction_Implementation(UAnimMontage* HitMontage)
 {
-	if (GetOwnerRole() == ROLE_Authority)
-	{
-		return;
-	}
+	if (GetOwnerRole() == ROLE_Authority) return;
 
 	PlayHitReactionOnActor(GetOwner(), HitMontage, 0.f);
 }
 
 bool UCP_PredictedAbilityComponent::PlayHitReactionOnActor(AActor* TargetActor, UAnimMontage* HitMontage, float StartPosition) const
 {
-	if (!TargetActor || !HitMontage)
-	{
-		return false;
-	}
+	if (!TargetActor || !HitMontage) return false;
 
 	USkeletalMeshComponent* MeshComponent = TargetActor->FindComponentByClass<USkeletalMeshComponent>();
-	if (!MeshComponent)
-	{
-		return false;
-	}
+	if (!MeshComponent) return false;
 
 	UAnimInstance* AnimInstance = MeshComponent->GetAnimInstance();
-	if (!AnimInstance)
-	{
-		return false;
-	}
+	if (!AnimInstance) return false;
 
 	if (AnimInstance->Montage_IsPlaying(HitMontage))
 	{
@@ -242,38 +192,23 @@ bool UCP_PredictedAbilityComponent::PlayHitReactionOnActor(AActor* TargetActor, 
 
 void UCP_PredictedAbilityComponent::BeginHitReactionMovementTolerance(float Duration)
 {
-	if (GetOwnerRole() != ROLE_Authority)
-	{
-		return;
-	}
+	if (GetOwnerRole() != ROLE_Authority) return;
 
 	AActor* OwnerActor = GetOwner();
-	if (!OwnerActor)
-	{
-		return;
-	}
+	if (!OwnerActor) return;
 
 	UWorld* World = GetWorld();
-	if (!World)
-	{
-		return;
-	}
+	if (!World) return;
 
 	UCharacterMovementComponent* MovementComponent =
 		OwnerActor->FindComponentByClass<UCharacterMovementComponent>();
 
-	if (!MovementComponent)
-	{
-		return;
-	}
+	if (!MovementComponent) return;
 
 	if (HitReactionMovementToleranceCount == 0)
 	{
 		bSavedIgnoreClientMovementErrorChecksAndCorrection =
 			MovementComponent->bIgnoreClientMovementErrorChecksAndCorrection;
-
-		bSavedServerAcceptClientAuthoritativePosition =
-			MovementComponent->bServerAcceptClientAuthoritativePosition;
 	}
 
 	++HitReactionMovementToleranceCount;
@@ -292,79 +227,59 @@ void UCP_PredictedAbilityComponent::BeginHitReactionMovementTolerance(float Dura
 
 	FTimerHandle TimerHandle;
 
-	World->GetTimerManager().SetTimer(
-		TimerHandle,
-		FTimerDelegate::CreateWeakLambda(this, [this]()
-		{
-			EndHitReactionMovementTolerance();
-		}),
-		FMath::Max(Duration, 0.01f),
-		false);
+	World->GetTimerManager().SetTimer(TimerHandle, FTimerDelegate::CreateWeakLambda(this, [this]()
+		{ EndHitReactionMovementTolerance(); }), FMath::Max(Duration, 0.01f), false);
 }
 
 void UCP_PredictedAbilityComponent::EndHitReactionMovementTolerance()
 {
-	if (HitReactionMovementToleranceCount <= 0)
-	{
-		return;
-	}
+	if (HitReactionMovementToleranceCount <= 0) return;
 
 	--HitReactionMovementToleranceCount;
 
-	if (HitReactionMovementToleranceCount > 0)
-	{
-		return;
-	}
+	if (HitReactionMovementToleranceCount > 0) return;
 
 	AActor* OwnerActor = GetOwner();
-	if (!OwnerActor)
-	{
-		return;
-	}
+	if (!OwnerActor) return;
 
 	UCharacterMovementComponent* MovementComponent =
 		OwnerActor->FindComponentByClass<UCharacterMovementComponent>();
 
-	if (!MovementComponent)
-	{
-		return;
-	}
+	if (!MovementComponent) return;
 
 	MovementComponent->bIgnoreClientMovementErrorChecksAndCorrection =
 		bSavedIgnoreClientMovementErrorChecksAndCorrection;
 
-	MovementComponent->bServerAcceptClientAuthoritativePosition =
-		bSavedServerAcceptClientAuthoritativePosition;
+	MovementComponent->bServerAcceptClientAuthoritativePosition = false;
 
 	OwnerActor->ForceNetUpdate();
 }
 
 void UCP_PredictedAbilityComponent::BeginLocalPredictedTargetReaction(float Duration)
 {
-	if (GetOwnerRole() != ROLE_SimulatedProxy)
-	{
-		return;
-	}
+	if (GetOwnerRole() != ROLE_SimulatedProxy) return;
+
+	UWorld* World = GetWorld();
+	if (!World) return;
 
 	++LocalPredictedTargetReactionCount;
 
+	const float SafeDuration = FMath::Max(Duration, 0.01f);
+
 	FTimerHandle TimerHandle;
-	GetWorld()->GetTimerManager().SetTimer(
+	World->GetTimerManager().SetTimer(
 		TimerHandle,
 		FTimerDelegate::CreateWeakLambda(this, [this]()
 		{
 			EndLocalPredictedTargetReaction();
 		}),
-		FMath::Max(Duration, 0.01f),
+		SafeDuration,
 		false);
 }
 
 void UCP_PredictedAbilityComponent::AddPredictedHitReaction(AActor* TargetActor, int32 PredictionKey)
 {
-	if (!TargetActor || PredictionKey <= 0)
-	{
-		return;
-	}
+	if (!TargetActor || PredictionKey <= 0) return;
 
 	PendingHitReactionPredictions.RemoveAll([](const FCP_PendingHitReactionPrediction& Prediction)
 	{
@@ -393,20 +308,14 @@ void UCP_PredictedAbilityComponent::AddPredictedHitReaction(AActor* TargetActor,
 
 void UCP_PredictedAbilityComponent::EndLocalPredictedTargetReaction()
 {
-	if (LocalPredictedTargetReactionCount <= 0)
-	{
-		return;
-	}
+	if (LocalPredictedTargetReactionCount <= 0) return;
 
 	--LocalPredictedTargetReactionCount;
 }
 
 void UCP_PredictedAbilityComponent::PlayConfirmedHitReaction(AActor* TargetActor, UAnimMontage* HitMontage, int32 PredictionKey)
 {
-	if (GetOwnerRole() != ROLE_Authority || !TargetActor || !HitMontage)
-	{
-		return;
-	}
+	if (GetOwnerRole() != ROLE_Authority || !TargetActor || !HitMontage) return;
 
 	PlayHitReactionOnActor(TargetActor, HitMontage, 0.f);
 
@@ -422,16 +331,10 @@ void UCP_PredictedAbilityComponent::PlayConfirmedHitReaction(AActor* TargetActor
 
 void UCP_PredictedAbilityComponent::ScheduleTargetNetUpdate(AActor* TargetActor, float Delay) const
 {
-	if (GetOwnerRole() != ROLE_Authority || !TargetActor)
-	{
-		return;
-	}
+	if (GetOwnerRole() != ROLE_Authority || !TargetActor) return;
 
 	UWorld* World = GetWorld();
-	if (!World)
-	{
-		return;
-	}
+	if (!World) return;
 
 	if (Delay <= 0.f)
 	{
@@ -451,13 +354,10 @@ void UCP_PredictedAbilityComponent::ScheduleTargetNetUpdate(AActor* TargetActor,
 				StrongTargetActor->ForceNetUpdate();
 			}
 		}),
-		Delay,
-		false);
+		Delay, false);
 }
 
-bool UCP_PredictedAbilityComponent::HasServerConfirmedHitReaction(
-	AActor* TargetActor,
-	UAnimMontage* HitMontage,
+bool UCP_PredictedAbilityComponent::HasServerConfirmedHitReaction(AActor* TargetActor, UAnimMontage* HitMontage,
 	int32 PredictionKey) const
 {
 	for (const FCP_ServerConfirmedHitReaction& Entry : ServerConfirmedHitReactions)
@@ -473,9 +373,7 @@ bool UCP_PredictedAbilityComponent::HasServerConfirmedHitReaction(
 	return false;
 }
 
-void UCP_PredictedAbilityComponent::MarkServerConfirmedHitReaction(
-	AActor* TargetActor,
-	UAnimMontage* HitMontage,
+void UCP_PredictedAbilityComponent::MarkServerConfirmedHitReaction(AActor* TargetActor, UAnimMontage* HitMontage,
 	int32 PredictionKey)
 {
 	FCP_ServerConfirmedHitReaction Entry;
@@ -511,10 +409,7 @@ void UCP_PredictedAbilityComponent::GrantDefaultAbilities()
 void UCP_PredictedAbilityComponent::ServerTryActivateAbilityByTag_Implementation(FGameplayTag AbilityTag, int32 PredictionKey)
 {
 	UCP_PredictedGameplayAbility* Ability = FindAbilityByTag(AbilityTag);
-	if (!Ability || !Ability->CanActivateAbility())
-	{
-		return;
-	}
+	if (!Ability || !Ability->CanActivateAbility()) return;
 
 	FCP_PredictedAbilityActivationInfo ActivationInfo;
 	ActivationInfo.PredictionKey = PredictionKey;
@@ -565,10 +460,7 @@ bool UCP_PredictedAbilityComponent::ConsumePendingPrediction(FGameplayTag Abilit
 
 bool UCP_PredictedAbilityComponent::ConsumePredictedHitReaction(AActor* TargetActor, int32 PredictionKey)
 {
-	if (!TargetActor || PredictionKey <= 0)
-	{
-		return false;
-	}
+	if (!TargetActor || PredictionKey <= 0) return false;
 
 	for (int32 Index = 0; Index < PendingHitReactionPredictions.Num(); ++Index)
 	{
