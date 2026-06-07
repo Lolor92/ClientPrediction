@@ -21,6 +21,18 @@ struct FCP_PendingAbilityPrediction
 	int32 PredictionKey = 0;
 };
 
+USTRUCT()
+struct FCP_PendingHitReactionPrediction
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	TObjectPtr<AActor> TargetActor = nullptr;
+
+	UPROPERTY()
+	int32 PredictionKey = 0;
+};
+
 UCLASS(ClassGroup=(ClientPrediction), meta=(BlueprintSpawnableComponent))
 class CLIENTPREDICTION_API UCP_PredictedAbilityComponent : public UActorComponent
 {
@@ -57,6 +69,7 @@ public:
 
 	bool ShouldSuppressLocomotionAnimation() const { return LocalPredictedTargetReactionCount > 0; }
 	void BeginLocalPredictedTargetReaction(float Duration);
+	void AddPredictedHitReaction(AActor* TargetActor, int32 PredictionKey);
 	
 private:
 	void GrantDefaultAbilities();
@@ -67,6 +80,8 @@ private:
 	void EndLocalPredictedTargetReaction();
 	void RestoreLocalPredictionNetworkSmoothing();
 	void PlayConfirmedHitReaction(AActor* TargetActor, UAnimMontage* HitMontage, int32 PredictionKey);
+	void ForceTargetNetUpdate(AActor* TargetActor) const;
+	void ScheduleTargetNetUpdate(AActor* TargetActor, float Delay) const;
 	
 	UFUNCTION(Server, Reliable)
 	void ServerTryActivateAbilityByTag(FGameplayTag AbilityTag, int32 PredictionKey);
@@ -76,6 +91,9 @@ private:
 
 	UPROPERTY(EditDefaultsOnly, Category="Predicted Ability")
 	TArray<TSubclassOf<UCP_PredictedGameplayAbility>> DefaultAbilityClasses;
+
+	UPROPERTY(EditDefaultsOnly, Category="Predicted Ability|Networking")
+	bool bForceNetUpdateOnConfirmedHit = true;
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UCP_PredictedGameplayAbility>> GrantedAbilities;
@@ -96,7 +114,11 @@ private:
 	
 	UPROPERTY(Transient)
 	TArray<FCP_PendingAbilityPrediction> PendingPredictions;
+
+	UPROPERTY(Transient)
+	TArray<FCP_PendingHitReactionPrediction> PendingHitReactionPredictions;
 	
 	void AddPendingPrediction(FGameplayTag AbilityTag, int32 PredictionKey);
 	bool ConsumePendingPrediction(FGameplayTag AbilityTag, int32 PredictionKey);
+	bool ConsumePredictedHitReaction(AActor* TargetActor, int32 PredictionKey);
 };

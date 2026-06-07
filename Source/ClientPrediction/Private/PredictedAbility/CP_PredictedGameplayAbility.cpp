@@ -154,6 +154,11 @@ bool UCP_PredictedGameplayAbility::ProcessPredictedMeleeHit(
 
 	if (ActivationInfo.bIsLocallyPredicted)
 	{
+		if (OwningComponent)
+		{
+			OwningComponent->AddPredictedHitReaction(HitActor, ActivationInfo.PredictionKey);
+		}
+
 		if (UCP_PredictedAbilityComponent* HitAbilityComponent = HitActor->FindComponentByClass<UCP_PredictedAbilityComponent>())
 		{
 			const APawn* AvatarPawn = Cast<APawn>(GetAvatarActor());

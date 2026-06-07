@@ -155,10 +155,12 @@ void UCP_PredictedAbilityComponent::MulticastPlayHitReaction_Implementation(AAct
 		return;
 	}
 
-	// The attacking owning client already predicted this target reaction.
 	if (GetOwnerRole() != ROLE_Authority && IsLocallyControlledAvatar())
 	{
-		return;
+		if (ConsumePredictedHitReaction(TargetActor, PredictionKey))
+		{
+			return;
+		}
 	}
 
 	const APawn* TargetPawn = Cast<APawn>(TargetActor);
@@ -320,6 +322,38 @@ void UCP_PredictedAbilityComponent::BeginLocalPredictedTargetReaction(float Dura
 		false);
 }
 
+void UCP_PredictedAbilityComponent::AddPredictedHitReaction(AActor* TargetActor, int32 PredictionKey)
+{
+	if (!TargetActor || PredictionKey <= 0)
+	{
+		return;
+	}
+
+	PendingHitReactionPredictions.RemoveAll([](const FCP_PendingHitReactionPrediction& Prediction)
+	{
+		return !Prediction.TargetActor;
+	});
+
+	for (const FCP_PendingHitReactionPrediction& Prediction : PendingHitReactionPredictions)
+	{
+		if (Prediction.TargetActor == TargetActor && Prediction.PredictionKey == PredictionKey)
+		{
+			return;
+		}
+	}
+
+	FCP_PendingHitReactionPrediction PendingPrediction;
+	PendingPrediction.TargetActor = TargetActor;
+	PendingPrediction.PredictionKey = PredictionKey;
+	PendingHitReactionPredictions.Add(PendingPrediction);
+
+	constexpr int32 MaxPendingHitReactionPredictions = 16;
+	if (PendingHitReactionPredictions.Num() > MaxPendingHitReactionPredictions)
+	{
+		PendingHitReactionPredictions.RemoveAt(0, PendingHitReactionPredictions.Num() - MaxPendingHitReactionPredictions);
+	}
+}
+
 void UCP_PredictedAbilityComponent::EndLocalPredictedTargetReaction()
 {
 	if (LocalPredictedTargetReactionCount <= 0)
@@ -373,12 +407,60 @@ void UCP_PredictedAbilityComponent::PlayConfirmedHitReaction(AActor* TargetActor
 	}
 
 	PlayHitReactionOnActor(TargetActor, HitMontage, 0.f);
+	ForceTargetNetUpdate(TargetActor);
 
 	const UWorld* World = GetWorld();
 	const AGameStateBase* GameState = World ? World->GetGameState() : nullptr;
 	const float ServerStartTime = GameState ? GameState->GetServerWorldTimeSeconds() : 0.f;
 
 	MulticastPlayHitReaction(TargetActor, HitMontage, PredictionKey, ServerStartTime);
+
+	const float FinalUpdateDelay = HitMontage->GetPlayLength() + HitMontage->GetDefaultBlendOutTime() + 0.05f;
+	ScheduleTargetNetUpdate(TargetActor, FinalUpdateDelay);
+}
+
+void UCP_PredictedAbilityComponent::ForceTargetNetUpdate(AActor* TargetActor) const
+{
+	if (!bForceNetUpdateOnConfirmedHit || GetOwnerRole() != ROLE_Authority || !TargetActor)
+	{
+		return;
+	}
+
+	TargetActor->ForceNetUpdate();
+}
+
+void UCP_PredictedAbilityComponent::ScheduleTargetNetUpdate(AActor* TargetActor, float Delay) const
+{
+	if (!bForceNetUpdateOnConfirmedHit || GetOwnerRole() != ROLE_Authority || !TargetActor)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	if (Delay <= 0.f)
+	{
+		ForceTargetNetUpdate(TargetActor);
+		return;
+	}
+
+	TWeakObjectPtr<AActor> WeakTargetActor = TargetActor;
+	FTimerHandle TimerHandle;
+	World->GetTimerManager().SetTimer(
+		TimerHandle,
+		FTimerDelegate::CreateWeakLambda(this, [this, WeakTargetActor]()
+		{
+			if (AActor* StrongTargetActor = WeakTargetActor.Get())
+			{
+				ForceTargetNetUpdate(StrongTargetActor);
+			}
+		}),
+		Delay,
+		false);
 }
 
 void UCP_PredictedAbilityComponent::GrantDefaultAbilities()
@@ -450,6 +532,27 @@ bool UCP_PredictedAbilityComponent::ConsumePendingPrediction(FGameplayTag Abilit
 		if (PendingPrediction.AbilityTag == AbilityTag && PendingPrediction.PredictionKey == PredictionKey)
 		{
 			PendingPredictions.RemoveAtSwap(Index);
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool UCP_PredictedAbilityComponent::ConsumePredictedHitReaction(AActor* TargetActor, int32 PredictionKey)
+{
+	if (!TargetActor || PredictionKey <= 0)
+	{
+		return false;
+	}
+
+	for (int32 Index = 0; Index < PendingHitReactionPredictions.Num(); ++Index)
+	{
+		const FCP_PendingHitReactionPrediction& PendingPrediction = PendingHitReactionPredictions[Index];
+
+		if (PendingPrediction.TargetActor == TargetActor && PendingPrediction.PredictionKey == PredictionKey)
+		{
+			PendingHitReactionPredictions.RemoveAtSwap(Index);
 			return true;
 		}
 	}
