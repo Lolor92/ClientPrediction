@@ -26,6 +26,18 @@ struct FCP_PredictedAbilityActivationInfo
 	bool bIsAuthority = false;
 };
 
+USTRUCT()
+struct FCP_ProcessedMeleeHit
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	TObjectPtr<AActor> HitActor = nullptr;
+
+	UPROPERTY()
+	int32 PredictionKey = 0;
+};
+
 UCLASS(Abstract, Blueprintable)
 class CLIENTPREDICTION_API UCP_PredictedGameplayAbility : public UObject
 {
@@ -82,7 +94,7 @@ public:
 		TEnumAsByte<ECollisionChannel> TraceChannel,
 		FHitResult& OutHit,
 		bool bDrawDebug = false
-	) const;
+	);
 	
 protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Predicted Ability")
@@ -93,5 +105,11 @@ protected:
 	
 	UPROPERTY(BlueprintReadOnly, Category="Predicted Ability")
 	FCP_PredictedAbilityActivationInfo CurrentActivationInfo;
+
+	UPROPERTY(Transient)
+	TArray<FCP_ProcessedMeleeHit> ProcessedMeleeHits;
+
+	bool HasProcessedMeleeHit(AActor* HitActor, int32 PredictionKey) const;
+	void MarkProcessedMeleeHit(AActor* HitActor, int32 PredictionKey);
 	
 };

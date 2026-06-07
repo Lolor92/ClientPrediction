@@ -137,20 +137,27 @@ void UCP_PredictedAbilityComponent::ConfirmHitReaction(AActor* TargetActor, UAni
 		return;
 	}
 
+	if (HasServerConfirmedHitReaction(TargetActor, HitMontage, PredictionKey))
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("SERVER DUPLICATE BLOCKED Target=%s Montage=%s Key=%d Time=%.3f"),
+			*GetNameSafe(TargetActor),
+			*GetNameSafe(HitMontage),
+			PredictionKey,
+			GetWorld() ? GetWorld()->GetTimeSeconds() : -1.f);
+
+		return;
+	}
+
+	MarkServerConfirmedHitReaction(TargetActor, HitMontage, PredictionKey);
+
 	UE_LOG(LogTemp, Warning,
-		TEXT("SERVER ConfirmHitReaction Owner=%s Target=%s Montage=%s Key=%d Time=%.3f"),
+		TEXT("SERVER ACCEPTED ConfirmHitReaction Owner=%s Target=%s Montage=%s Key=%d Time=%.3f"),
 		*GetNameSafe(GetOwner()),
 		*GetNameSafe(TargetActor),
 		*GetNameSafe(HitMontage),
 		PredictionKey,
 		GetWorld() ? GetWorld()->GetTimeSeconds() : -1.f);
-
-	if (HasServerConfirmedHitReaction(TargetActor, HitMontage, PredictionKey))
-	{
-		return;
-	}
-
-	MarkServerConfirmedHitReaction(TargetActor, HitMontage, PredictionKey);
 
 	if (UCP_PredictedAbilityComponent* TargetAbilityComponent = TargetActor->FindComponentByClass<UCP_PredictedAbilityComponent>())
 	{
@@ -229,16 +236,7 @@ bool UCP_PredictedAbilityComponent::PlayHitReactionOnActor(AActor* TargetActor, 
 
 	if (AnimInstance->Montage_IsPlaying(HitMontage))
 	{
-		const float CurrentPosition = AnimInstance->Montage_GetPosition(HitMontage);
-
-		// Already playing this same hit reaction. Do not restart it.
-		if (CurrentPosition >= StartPosition - 0.15f)
-		{
-			return true;
-		}
-
-		// Only correct montage time if the server is ahead.
-		AnimInstance->Montage_SetPosition(HitMontage, StartPosition);
+		// Already predicted/playing. Do not restart and do not time-correct.
 		return true;
 	}
 
@@ -394,7 +392,8 @@ void UCP_PredictedAbilityComponent::PlayConfirmedHitReaction(AActor* TargetActor
 	}
 
 	PlayHitReactionOnActor(TargetActor, HitMontage, 0.f);
-	ForceTargetNetUpdate(TargetActor);
+	// Avoid forcing a movement update while clients may be playing predicted root motion.
+	// ForceTargetNetUpdate(TargetActor);
 
 	const UWorld* World = GetWorld();
 	const AGameStateBase* GameState = World ? World->GetGameState() : nullptr;

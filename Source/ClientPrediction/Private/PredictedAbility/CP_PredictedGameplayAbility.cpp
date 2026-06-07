@@ -118,6 +118,44 @@ bool UCP_PredictedGameplayAbility::TraceAvatarForward(
 	return bHit;
 }
 
+bool UCP_PredictedGameplayAbility::HasProcessedMeleeHit(AActor* HitActor, int32 PredictionKey) const
+{
+	if (!HitActor || PredictionKey <= 0)
+	{
+		return false;
+	}
+
+	for (const FCP_ProcessedMeleeHit& Entry : ProcessedMeleeHits)
+	{
+		if (Entry.HitActor == HitActor && Entry.PredictionKey == PredictionKey)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+void UCP_PredictedGameplayAbility::MarkProcessedMeleeHit(AActor* HitActor, int32 PredictionKey)
+{
+	if (!HitActor || PredictionKey <= 0)
+	{
+		return;
+	}
+
+	FCP_ProcessedMeleeHit Entry;
+	Entry.HitActor = HitActor;
+	Entry.PredictionKey = PredictionKey;
+
+	ProcessedMeleeHits.Add(Entry);
+
+	constexpr int32 MaxProcessedMeleeHits = 32;
+	if (ProcessedMeleeHits.Num() > MaxProcessedMeleeHits)
+	{
+		ProcessedMeleeHits.RemoveAt(0, ProcessedMeleeHits.Num() - MaxProcessedMeleeHits);
+	}
+}
+
 bool UCP_PredictedGameplayAbility::ProcessPredictedMeleeHit(
 	const FCP_PredictedAbilityActivationInfo& ActivationInfo,
 	UAnimMontage* HitReactMontage,
@@ -125,7 +163,7 @@ bool UCP_PredictedGameplayAbility::ProcessPredictedMeleeHit(
 	float TraceRadius,
 	TEnumAsByte<ECollisionChannel> TraceChannel,
 	FHitResult& OutHit,
-	bool bDrawDebug) const
+	bool bDrawDebug)
 {
 	if (!ActivationInfo.bIsLocallyPredicted && !ActivationInfo.bIsAuthority)
 	{
@@ -143,12 +181,26 @@ bool UCP_PredictedGameplayAbility::ProcessPredictedMeleeHit(
 		return false;
 	}
 
+	if (HasProcessedMeleeHit(HitActor, ActivationInfo.PredictionKey))
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("%s MELEE HIT DUPLICATE BLOCKED Target=%s Key=%d"),
+			ActivationInfo.bIsAuthority ? TEXT("SERVER") : TEXT("CLIENT"),
+			*GetNameSafe(HitActor),
+			ActivationInfo.PredictionKey);
+
+		return false;
+	}
+
+	MarkProcessedMeleeHit(HitActor, ActivationInfo.PredictionKey);
+
 	if (ActivationInfo.bIsAuthority)
 	{
 		if (OwningComponent)
 		{
 			OwningComponent->ConfirmHitReaction(HitActor, HitReactMontage, ActivationInfo.PredictionKey);
 		}
+
 		return true;
 	}
 
@@ -166,6 +218,7 @@ bool UCP_PredictedGameplayAbility::ProcessPredictedMeleeHit(
 			const float AttackerPingSeconds = PlayerState ? PlayerState->GetPingInMilliseconds() * 0.001f : 0.f;
 			const float PredictionBuffer = FMath::Clamp(AttackerPingSeconds + 0.1f, 0.2f, 0.75f);
 			const float BlendOutSettleTime = HitReactMontage->GetDefaultBlendOutTime() + 0.15f;
+
 			HitAbilityComponent->BeginLocalPredictedTargetReaction(
 				HitReactMontage->GetPlayLength() + PredictionBuffer + BlendOutSettleTime);
 		}
