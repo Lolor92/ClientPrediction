@@ -33,6 +33,21 @@ struct FCP_PendingHitReactionPrediction
 	int32 PredictionKey = 0;
 };
 
+USTRUCT()
+struct FCP_ServerConfirmedHitReaction
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	TObjectPtr<AActor> TargetActor = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UAnimMontage> HitMontage = nullptr;
+
+	UPROPERTY()
+	int32 PredictionKey = 0;
+};
+
 UCLASS(ClassGroup=(ClientPrediction), meta=(BlueprintSpawnableComponent))
 class CLIENTPREDICTION_API UCP_PredictedAbilityComponent : public UActorComponent
 {
@@ -81,6 +96,8 @@ private:
 	void PlayConfirmedHitReaction(AActor* TargetActor, UAnimMontage* HitMontage, int32 PredictionKey);
 	void ForceTargetNetUpdate(AActor* TargetActor) const;
 	void ScheduleTargetNetUpdate(AActor* TargetActor, float Delay) const;
+	bool HasServerConfirmedHitReaction(AActor* TargetActor, UAnimMontage* HitMontage, int32 PredictionKey) const;
+	void MarkServerConfirmedHitReaction(AActor* TargetActor, UAnimMontage* HitMontage, int32 PredictionKey);
 	
 	UFUNCTION(Server, Reliable)
 	void ServerTryActivateAbilityByTag(FGameplayTag AbilityTag, int32 PredictionKey);
@@ -114,6 +131,9 @@ private:
 
 	UPROPERTY(Transient)
 	TArray<FCP_PendingHitReactionPrediction> PendingHitReactionPredictions;
+
+	UPROPERTY(Transient)
+	TArray<FCP_ServerConfirmedHitReaction> ServerConfirmedHitReactions;
 	
 	void AddPendingPrediction(FGameplayTag AbilityTag, int32 PredictionKey);
 	bool ConsumePendingPrediction(FGameplayTag AbilityTag, int32 PredictionKey);

@@ -137,6 +137,21 @@ void UCP_PredictedAbilityComponent::ConfirmHitReaction(AActor* TargetActor, UAni
 		return;
 	}
 
+	UE_LOG(LogTemp, Warning,
+		TEXT("SERVER ConfirmHitReaction Owner=%s Target=%s Montage=%s Key=%d Time=%.3f"),
+		*GetNameSafe(GetOwner()),
+		*GetNameSafe(TargetActor),
+		*GetNameSafe(HitMontage),
+		PredictionKey,
+		GetWorld() ? GetWorld()->GetTimeSeconds() : -1.f);
+
+	if (HasServerConfirmedHitReaction(TargetActor, HitMontage, PredictionKey))
+	{
+		return;
+	}
+
+	MarkServerConfirmedHitReaction(TargetActor, HitMontage, PredictionKey);
+
 	if (UCP_PredictedAbilityComponent* TargetAbilityComponent = TargetActor->FindComponentByClass<UCP_PredictedAbilityComponent>())
 	{
 		TargetAbilityComponent->ClientPlayOwnedHitReaction(HitMontage, PredictionKey);
@@ -214,13 +229,15 @@ bool UCP_PredictedAbilityComponent::PlayHitReactionOnActor(AActor* TargetActor, 
 
 	if (AnimInstance->Montage_IsPlaying(HitMontage))
 	{
-		const float CurrentPos = AnimInstance->Montage_GetPosition(HitMontage);
+		const float CurrentPosition = AnimInstance->Montage_GetPosition(HitMontage);
 
-		if (FMath::Abs(CurrentPos - StartPosition) < 0.20f)
+		// Already playing this same hit reaction. Do not restart it.
+		if (CurrentPosition >= StartPosition - 0.15f)
 		{
 			return true;
 		}
 
+		// Only correct montage time if the server is ahead.
 		AnimInstance->Montage_SetPosition(HitMontage, StartPosition);
 		return true;
 	}
@@ -431,6 +448,43 @@ void UCP_PredictedAbilityComponent::ScheduleTargetNetUpdate(AActor* TargetActor,
 		}),
 		Delay,
 		false);
+}
+
+bool UCP_PredictedAbilityComponent::HasServerConfirmedHitReaction(
+	AActor* TargetActor,
+	UAnimMontage* HitMontage,
+	int32 PredictionKey) const
+{
+	for (const FCP_ServerConfirmedHitReaction& Entry : ServerConfirmedHitReactions)
+	{
+		if (Entry.TargetActor == TargetActor &&
+			Entry.HitMontage == HitMontage &&
+			Entry.PredictionKey == PredictionKey)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+void UCP_PredictedAbilityComponent::MarkServerConfirmedHitReaction(
+	AActor* TargetActor,
+	UAnimMontage* HitMontage,
+	int32 PredictionKey)
+{
+	FCP_ServerConfirmedHitReaction Entry;
+	Entry.TargetActor = TargetActor;
+	Entry.HitMontage = HitMontage;
+	Entry.PredictionKey = PredictionKey;
+
+	ServerConfirmedHitReactions.Add(Entry);
+
+	constexpr int32 MaxEntries = 32;
+	if (ServerConfirmedHitReactions.Num() > MaxEntries)
+	{
+		ServerConfirmedHitReactions.RemoveAt(0, ServerConfirmedHitReactions.Num() - MaxEntries);
+	}
 }
 
 void UCP_PredictedAbilityComponent::GrantDefaultAbilities()
