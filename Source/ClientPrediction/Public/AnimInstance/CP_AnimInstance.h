@@ -5,6 +5,7 @@
 #include "CP_AnimInstance.generated.h"
 
 class UCharacterMovementComponent;
+class UCP_PredictedAbilityComponent;
 
 UCLASS()
 class CLIENTPREDICTION_API UCP_AnimInstance : public UAnimInstance
@@ -37,8 +38,13 @@ protected:
 	float MovementOffsetYaw = 0.f;
 	
 private:
-	UPROPERTY() ACharacter* Character;
+	UPROPERTY()
+	TObjectPtr<ACharacter> Character = nullptr;
 	
-	UPROPERTY() UCharacterMovementComponent* CharacterMovementComponent;
+	UPROPERTY()
+	TObjectPtr<UCharacterMovementComponent> CharacterMovementComponent = nullptr;
+
+	UPROPERTY()
+	TObjectPtr<UCP_PredictedAbilityComponent> PredictedAbilityComponent = nullptr;
 	
 };

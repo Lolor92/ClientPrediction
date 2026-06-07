@@ -15,6 +15,7 @@ void UCP_AnimInstance::NativeInitializeAnimation()
 	if (!Character) return;
 
 	CharacterMovementComponent = Character->GetCharacterMovement();
+	PredictedAbilityComponent = Character->FindComponentByClass<UCP_PredictedAbilityComponent>();
 }
 
 void UCP_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
@@ -23,16 +24,16 @@ void UCP_AnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	
 	if (!Character || !CharacterMovementComponent) return;
 
-	const UCP_PredictedAbilityComponent* PredictedAbilityComponent =
-		Character->FindComponentByClass<UCP_PredictedAbilityComponent>();
 	if (PredictedAbilityComponent && PredictedAbilityComponent->ShouldSuppressLocomotionAnimation())
 	{
 		bIsAccelerating = false;
 		GroundSpeed = 0.f;
 		IsAirBorne = CharacterMovementComponent->IsFalling();
+
 		AimRotation = Character->GetBaseAimRotation();
 		MovementRotation = Character->GetActorRotation();
 		MovementOffsetYaw = 0.f;
+
 		return;
 	}
 	
