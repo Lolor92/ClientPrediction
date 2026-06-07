@@ -45,12 +45,7 @@ UCP_PredictedGameplayAbility* UCP_PredictedAbilityComponent::FindAbilityByTag(FG
 bool UCP_PredictedAbilityComponent::TryActivateAbilityByTag(FGameplayTag AbilityTag)
 {
 	UCP_PredictedGameplayAbility* Ability = FindAbilityByTag(AbilityTag);
-	if (!Ability)
-	{
-		return false;
-	}
-
-	if (!Ability->CanActivateAbility())
+	if (!Ability || !Ability->CanActivateAbility())
 	{
 		return false;
 	}
@@ -111,7 +106,7 @@ void UCP_PredictedAbilityComponent::MulticastConfirmAbilityStarted_Implementatio
 
 bool UCP_PredictedAbilityComponent::SendAbilityEvent(FGameplayTag AbilityTag, FName EventName)
 {
-	UCP_PredictedGameplayAbility* Ability = FindAbilityByTag(AbilityTag);
+	UCP_PredictedGameplayAbility* const Ability = FindAbilityByTag(AbilityTag);
 	if (!Ability)
 	{
 		return false;
@@ -516,16 +511,11 @@ void UCP_PredictedAbilityComponent::GrantDefaultAbilities()
 void UCP_PredictedAbilityComponent::ServerTryActivateAbilityByTag_Implementation(FGameplayTag AbilityTag, int32 PredictionKey)
 {
 	UCP_PredictedGameplayAbility* Ability = FindAbilityByTag(AbilityTag);
-	if (!Ability)
+	if (!Ability || !Ability->CanActivateAbility())
 	{
 		return;
 	}
 
-	if (!Ability->CanActivateAbility())
-	{
-		return;
-	}
-	
 	FCP_PredictedAbilityActivationInfo ActivationInfo;
 	ActivationInfo.PredictionKey = PredictionKey;
 	ActivationInfo.AbilityTag = AbilityTag;
@@ -534,7 +524,7 @@ void UCP_PredictedAbilityComponent::ServerTryActivateAbilityByTag_Implementation
 
 	CurrentActiveAbility = Ability;
 	Ability->ActivateAbility(ActivationInfo);
-	
+
 	MulticastConfirmAbilityStarted(AbilityTag, PredictionKey);
 }
 
