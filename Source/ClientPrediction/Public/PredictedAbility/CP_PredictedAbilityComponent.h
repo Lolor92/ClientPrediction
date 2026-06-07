@@ -100,13 +100,10 @@ private:
 	void ServerTryActivateAbilityByTag(FGameplayTag AbilityTag, int32 PredictionKey);
 
 	UFUNCTION(Client, Reliable)
-	void ClientPlayOwnedHitReaction(UAnimMontage* HitMontage, int32 PredictionKey);
+	void ClientPlayOwnedHitReaction(UAnimMontage* HitMontage);
 
 	UPROPERTY(EditDefaultsOnly, Category="Predicted Ability")
 	TArray<TSubclassOf<UCP_PredictedGameplayAbility>> DefaultAbilityClasses;
-
-	UPROPERTY(EditDefaultsOnly, Category="Predicted Ability|Networking")
-	bool bForceNetUpdateOnConfirmedHit = true;
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UCP_PredictedGameplayAbility>> GrantedAbilities;

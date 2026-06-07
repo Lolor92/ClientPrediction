@@ -55,9 +55,12 @@ bool UCP_PredictedAbilityComponent::TryActivateAbilityByTag(FGameplayTag Ability
 		return false;
 	}
 
+	const bool bIsAuthority = GetOwnerRole() == ROLE_Authority;
+	const bool bIsLocallyControlled = IsLocallyControlledAvatar();
+
 	const int32 PredictionKey = MakePredictionKey();
-	
-	if (IsLocallyControlledAvatar() && GetOwnerRole() != ROLE_Authority)
+
+	if (bIsLocallyControlled && !bIsAuthority)
 	{
 		AddPendingPrediction(AbilityTag, PredictionKey);
 	}
@@ -65,13 +68,13 @@ bool UCP_PredictedAbilityComponent::TryActivateAbilityByTag(FGameplayTag Ability
 	FCP_PredictedAbilityActivationInfo ActivationInfo;
 	ActivationInfo.PredictionKey = PredictionKey;
 	ActivationInfo.AbilityTag = AbilityTag;
-	ActivationInfo.bIsLocallyPredicted = IsLocallyControlledAvatar();
-	ActivationInfo.bIsAuthority = GetOwnerRole() == ROLE_Authority;
+	ActivationInfo.bIsLocallyPredicted = bIsLocallyControlled;
+	ActivationInfo.bIsAuthority = bIsAuthority;
 
 	CurrentActiveAbility = Ability;
 	Ability->ActivateAbility(ActivationInfo);
-	
-	if (GetOwnerRole() != ROLE_Authority)
+
+	if (!bIsAuthority)
 	{
 		ServerTryActivateAbilityByTag(AbilityTag, PredictionKey);
 	}
@@ -100,7 +103,7 @@ void UCP_PredictedAbilityComponent::MulticastConfirmAbilityStarted_Implementatio
 	ActivationInfo.PredictionKey = PredictionKey;
 	ActivationInfo.AbilityTag = AbilityTag;
 	ActivationInfo.bIsLocallyPredicted = false;
-	ActivationInfo.bIsAuthority = GetOwnerRole() == ROLE_Authority;
+	ActivationInfo.bIsAuthority = false;
 
 	CurrentActiveAbility = Ability;
 	Ability->ActivateAbility(ActivationInfo);
@@ -163,7 +166,7 @@ void UCP_PredictedAbilityComponent::ConfirmHitReaction(
 
 		TargetAbilityComponent->BeginHitReactionMovementTolerance(ToleranceDuration);
 
-		TargetAbilityComponent->ClientPlayOwnedHitReaction(HitMontage, PredictionKey);
+		TargetAbilityComponent->ClientPlayOwnedHitReaction(HitMontage);
 	}
 
 	PlayConfirmedHitReaction(TargetActor, HitMontage, PredictionKey);
@@ -203,7 +206,7 @@ void UCP_PredictedAbilityComponent::MulticastPlayHitReaction_Implementation(AAct
 	PlayHitReactionOnActor(TargetActor, HitMontage, StartPosition);
 }
 
-void UCP_PredictedAbilityComponent::ClientPlayOwnedHitReaction_Implementation(UAnimMontage* HitMontage, int32 PredictionKey)
+void UCP_PredictedAbilityComponent::ClientPlayOwnedHitReaction_Implementation(UAnimMontage* HitMontage)
 {
 	if (GetOwnerRole() == ROLE_Authority)
 	{
@@ -343,7 +346,7 @@ void UCP_PredictedAbilityComponent::EndHitReactionMovementTolerance()
 
 void UCP_PredictedAbilityComponent::BeginLocalPredictedTargetReaction(float Duration)
 {
-	if (!GetOwner() || GetOwnerRole() != ROLE_SimulatedProxy)
+	if (GetOwnerRole() != ROLE_SimulatedProxy)
 	{
 		return;
 	}
@@ -424,7 +427,7 @@ void UCP_PredictedAbilityComponent::PlayConfirmedHitReaction(AActor* TargetActor
 
 void UCP_PredictedAbilityComponent::ScheduleTargetNetUpdate(AActor* TargetActor, float Delay) const
 {
-	if (!bForceNetUpdateOnConfirmedHit || GetOwnerRole() != ROLE_Authority || !TargetActor)
+	if (GetOwnerRole() != ROLE_Authority || !TargetActor)
 	{
 		return;
 	}
