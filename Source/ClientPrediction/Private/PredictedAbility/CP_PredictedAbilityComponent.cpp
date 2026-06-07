@@ -130,7 +130,10 @@ bool UCP_PredictedAbilityComponent::SendEventToCurrentAbility(FName EventName)
 	return true;
 }
 
-void UCP_PredictedAbilityComponent::ConfirmHitReaction(AActor* TargetActor, UAnimMontage* HitMontage, int32 PredictionKey)
+void UCP_PredictedAbilityComponent::ConfirmHitReaction(
+	AActor* TargetActor,
+	UAnimMontage* HitMontage,
+	int32 PredictionKey)
 {
 	if (GetOwnerRole() != ROLE_Authority || !TargetActor || !HitMontage)
 	{
@@ -139,8 +142,7 @@ void UCP_PredictedAbilityComponent::ConfirmHitReaction(AActor* TargetActor, UAni
 
 	if (HasServerConfirmedHitReaction(TargetActor, HitMontage, PredictionKey))
 	{
-		UE_LOG(LogTemp, Warning,
-			TEXT("SERVER DUPLICATE BLOCKED Target=%s Montage=%s Key=%d Time=%.3f"),
+		UE_LOG(LogTemp, Warning, TEXT("SERVER DUPLICATE BLOCKED Target=%s Montage=%s Key=%d Time=%.3f"),
 			*GetNameSafe(TargetActor),
 			*GetNameSafe(HitMontage),
 			PredictionKey,
@@ -151,21 +153,31 @@ void UCP_PredictedAbilityComponent::ConfirmHitReaction(AActor* TargetActor, UAni
 
 	MarkServerConfirmedHitReaction(TargetActor, HitMontage, PredictionKey);
 
-	UE_LOG(LogTemp, Warning,
-		TEXT("SERVER ACCEPTED ConfirmHitReaction Owner=%s Target=%s Montage=%s Key=%d Time=%.3f"),
+	UE_LOG(LogTemp, Warning, TEXT("SERVER ACCEPTED ConfirmHitReaction Owner=%s Target=%s Montage=%s Key=%d Time=%.3f"),
 		*GetNameSafe(GetOwner()),
 		*GetNameSafe(TargetActor),
 		*GetNameSafe(HitMontage),
 		PredictionKey,
 		GetWorld() ? GetWorld()->GetTimeSeconds() : -1.f);
 
-	if (UCP_PredictedAbilityComponent* TargetAbilityComponent = TargetActor->FindComponentByClass<UCP_PredictedAbilityComponent>())
+	if (UCP_PredictedAbilityComponent* TargetAbilityComponent =
+		TargetActor->FindComponentByClass<UCP_PredictedAbilityComponent>())
 	{
-		TargetAbilityComponent->ClientPlayOwnedHitReaction(HitMontage, PredictionKey);
+		/*
+		 * This runs on the SERVER copy of the victim.
+		 *
+		 * The owning victim client will play the full hit reaction montage from 0.0.
+		 * While that root motion is happening, the server temporarily accepts that
+		 * client movement instead of constantly correcting it.
+		 */
+		const float ToleranceDuration =
+			HitMontage->GetPlayLength()
+			+ HitMontage->GetDefaultBlendOutTime()
+			+ 0.05f;
 
-		// Keep the server fully authoritative while testing hit-reaction desync.
-		// const float ToleranceDuration = HitMontage->GetPlayLength() + GetTargetOwnerOneWayLatency(TargetActor) + 0.1f;
-		// TargetAbilityComponent->BeginHitReactionMovementTolerance(ToleranceDuration);
+		TargetAbilityComponent->BeginHitReactionMovementTolerance(ToleranceDuration);
+
+		TargetAbilityComponent->ClientPlayOwnedHitReaction(HitMontage, PredictionKey);
 	}
 
 	PlayConfirmedHitReaction(TargetActor, HitMontage, PredictionKey);
@@ -264,9 +276,21 @@ void UCP_PredictedAbilityComponent::BeginHitReactionMovementTolerance(float Dura
 		return;
 	}
 
-	UCharacterMovementComponent* MovementComponent = GetOwner()
-		? GetOwner()->FindComponentByClass<UCharacterMovementComponent>()
-		: nullptr;
+	AActor* OwnerActor = GetOwner();
+	if (!OwnerActor)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	UCharacterMovementComponent* MovementComponent =
+		OwnerActor->FindComponentByClass<UCharacterMovementComponent>();
+
 	if (!MovementComponent)
 	{
 		return;
@@ -274,16 +298,35 @@ void UCP_PredictedAbilityComponent::BeginHitReactionMovementTolerance(float Dura
 
 	if (HitReactionMovementToleranceCount == 0)
 	{
-		bSavedIgnoreClientMovementErrorChecksAndCorrection = MovementComponent->bIgnoreClientMovementErrorChecksAndCorrection;
-		bSavedServerAcceptClientAuthoritativePosition = MovementComponent->bServerAcceptClientAuthoritativePosition;
+		bSavedIgnoreClientMovementErrorChecksAndCorrection =
+			MovementComponent->bIgnoreClientMovementErrorChecksAndCorrection;
+
+		bSavedServerAcceptClientAuthoritativePosition =
+			MovementComponent->bServerAcceptClientAuthoritativePosition;
 	}
 
 	++HitReactionMovementToleranceCount;
+
+	/*
+	 * Important:
+	 *
+	 * We only relax server correction checks.
+	 * We do NOT let the victim client become authoritative over the server position.
+	 *
+	 * Setting bServerAcceptClientAuthoritativePosition = true can move the server capsule
+	 * based on the victim client's local root motion, which then affects simulated proxies.
+	 */
 	MovementComponent->bIgnoreClientMovementErrorChecksAndCorrection = true;
-	MovementComponent->bServerAcceptClientAuthoritativePosition = true;
+	MovementComponent->bServerAcceptClientAuthoritativePosition = false;
+
+	UE_LOG(LogTemp, Warning, TEXT("SERVER HIT REACTION TOLERANCE START Owner=%s Duration=%.3f Count=%d IgnoreCorrection=true AcceptClientPos=false"),
+		*GetNameSafe(OwnerActor),
+		Duration,
+		HitReactionMovementToleranceCount);
 
 	FTimerHandle TimerHandle;
-	GetWorld()->GetTimerManager().SetTimer(
+
+	World->GetTimerManager().SetTimer(
 		TimerHandle,
 		FTimerDelegate::CreateWeakLambda(this, [this]()
 		{
@@ -301,21 +344,38 @@ void UCP_PredictedAbilityComponent::EndHitReactionMovementTolerance()
 	}
 
 	--HitReactionMovementToleranceCount;
+
 	if (HitReactionMovementToleranceCount > 0)
 	{
 		return;
 	}
 
-	UCharacterMovementComponent* MovementComponent = GetOwner()
-		? GetOwner()->FindComponentByClass<UCharacterMovementComponent>()
-		: nullptr;
+	AActor* OwnerActor = GetOwner();
+	if (!OwnerActor)
+	{
+		return;
+	}
+
+	UCharacterMovementComponent* MovementComponent =
+		OwnerActor->FindComponentByClass<UCharacterMovementComponent>();
+
 	if (!MovementComponent)
 	{
 		return;
 	}
 
-	MovementComponent->bIgnoreClientMovementErrorChecksAndCorrection = bSavedIgnoreClientMovementErrorChecksAndCorrection;
-	MovementComponent->bServerAcceptClientAuthoritativePosition = bSavedServerAcceptClientAuthoritativePosition;
+	MovementComponent->bIgnoreClientMovementErrorChecksAndCorrection =
+		bSavedIgnoreClientMovementErrorChecksAndCorrection;
+
+	MovementComponent->bServerAcceptClientAuthoritativePosition =
+		bSavedServerAcceptClientAuthoritativePosition;
+
+	UE_LOG(LogTemp, Warning, TEXT("SERVER HIT REACTION TOLERANCE END Owner=%s RestoredIgnoreCorrection=%s RestoredAcceptClientPos=%s"),
+		*GetNameSafe(OwnerActor),
+		bSavedIgnoreClientMovementErrorChecksAndCorrection ? TEXT("true") : TEXT("false"),
+		bSavedServerAcceptClientAuthoritativePosition ? TEXT("true") : TEXT("false"));
+
+	OwnerActor->ForceNetUpdate();
 }
 
 void UCP_PredictedAbilityComponent::BeginLocalPredictedTargetReaction(float Duration)
